@@ -11,14 +11,6 @@ import {
   type GateEntity,
   type DropoffEntity,
 } from './Gates';
-import {
-  createEnemy,
-  clashCombat,
-  disposeEnemy,
-  updateEnemyVisuals,
-  updateHpBar,
-  type EnemyEntity,
-} from './Enemies';
 import { createCoinLine, updateCoins, tryCollectCoin, disposeCoins, type CoinEntity } from './Coins';
 import {
   createObstacle,
@@ -38,16 +30,42 @@ import {
   type PackagePickup,
   type ThrownPackage,
 } from './Packages';
+import {
+  createRunner,
+  updateRunners,
+  pickRunnerTier,
+  runnerTouchRadius,
+  disposeRunners,
+  type RunnerEntity,
+} from './Runners';
+import {
+  createPowerUp,
+  updatePowerUps,
+  tryCollectPowerUp,
+  randomPowerUpKind,
+  disposePowerUps,
+  POWER_LABELS,
+  type PowerUpEntity,
+} from './PowerUps';
+import {
+  pickObstacleLanes,
+  pickRandomLane,
+  pickRandomObstacle,
+  obstacleSpacing,
+  runnerSpacing,
+  powerUpSpacing,
+  packageSpacing,
+} from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
 import { getLevel } from '../data/levels';
 import { getDistrict } from '../data/districts';
-import type { SaveData, RunState, GameResult, LevelDef, EnemyType, DeathReason } from '../types';
+import type { SaveData, RunState, GameResult, LevelDef, DeathReason } from '../types';
 import { INITIAL_RUN } from '../types';
 
 export type GameCallbacks = {
   onHudUpdate: (data: HudData) => void;
   onToast: (msg: string) => void;
-  onCombat: (active: boolean, enemyName?: string) => void;
+  onCombat: (active: boolean) => void;
   onDamageFlash: () => void;
   onEnd: (result: GameResult) => void;
 };
@@ -56,19 +74,17 @@ export type HudData = {
   integrity: number;
   maxIntegrity: number;
   coins: number;
+  packages: number;
   distance: number;
   totalDistance: number;
   timeLeft: number;
   abilityCd: number;
   abilityReady: boolean;
-  throwReady: boolean;
-  mailGunReady: boolean;
+  shootReady: boolean;
   jumpReady: boolean;
   forkHint?: string;
-  inCombat: boolean;
-  enemyHp?: number;
-  enemyMaxHp?: number;
-  enemyName?: string;
+  powerUpLabel?: string;
+  invincible: boolean;
 };
 
 export class Game {
@@ -87,10 +103,11 @@ export class Game {
   private save: SaveData;
 
   private routeGates: GateEntity[] = [];
-  private enemies: EnemyEntity[] = [];
+  private runners: RunnerEntity[] = [];
   private coins: CoinEntity[] = [];
   private packagePickups: PackagePickup[] = [];
   private obstacles: ObstacleEntity[] = [];
+  private powerUps: PowerUpEntity[] = [];
   private throws: ThrownPackage[] = [];
   private dropoff!: DropoffEntity;
 
@@ -103,29 +120,36 @@ export class Game {
   private elapsed = 0;
   private levelLength = 200;
   private roadHalfWidth = 4.2;
-  private steerSpeed = 16;
+  private steerSpeed = 20;
   private obstacleCooldown = 0;
   private gameTime = 0;
 
-  private activeEnemy: EnemyEntity | null = null;
   private smokeTimer = 0;
   private dashTimer = 0;
   private dashActive = false;
   private abilityCd = 0;
   private abilityMaxCd = 12;
-  private throwCd = 0;
-  private mailCd = 0;
+  private shootCd = 0;
   private mailGunDamage = 3;
-  private mailGunRate = 0.28;
-  private combatTurretDps = 0;
-  private regenTimer = 0;
-  private startConvoy = 5;
-  private startPackages = 3;
-  private coinRadius = 2;
-  private packageRadius = 2.2;
-  private beaconRegen = 0;
+  private mailGunRate = 0.22;
+  private packageDamage = 8;
+  private packageRate = 0.38;
+  private startPackages = 0;
+
+  private invincibleTimer = 0;
+  private slowMoTimer = 0;
+  private fastShotTimer = 0;
+  private timeScale = 1;
   private forkHint = '';
+  private powerUpLabel = '';
   private deathReason: DeathReason = 'stolen';
+
+  private nextObstacleZ = 35;
+  private nextRunnerZ = 50;
+  private nextPowerUpZ = 80;
+  private nextPackageZ = 25;
+  private nextCoinZ = 45;
+  private spawnHorizon = 0;
 
   private cb: GameCallbacks;
   private raf = 0;
@@ -188,20 +212,16 @@ export class Game {
     bindSteer(hudEl.querySelector('#steer-left'), true);
     bindSteer(hudEl.querySelector('#steer-right'), false);
 
-    const onFireZone = (e: PointerEvent) => {
+    const onTap = (e: PointerEvent) => {
       if (!this.running || this.dead) return;
       const t = e.target as HTMLElement;
-      if (t.closest('#steer-left, #steer-right, #ability-btn, #jump-btn, #throw-btn, #mail-btn, .hud-panel, .btn')) return;
-
-      const rect = hudEl.getBoundingClientRect();
-      const relX = (e.clientX - rect.left) / rect.width;
-      if (relX < 0.42) this.fireMailGun();
-      else if (relX > 0.58) this.throwPackage();
+      if (t.closest('#steer-left, #steer-right, #ability-btn, #jump-btn, #shoot-btn, .hud-panel, .btn')) return;
+      this.shoot();
     };
-    hudEl.addEventListener('pointerdown', onFireZone);
+    hudEl.addEventListener('pointerdown', onTap);
 
     this.inputCleanup = () => {
-      hudEl.removeEventListener('pointerdown', onFireZone);
+      hudEl.removeEventListener('pointerdown', onTap);
       cleanups.forEach((fn) => fn());
     };
   }
@@ -217,50 +237,55 @@ export class Game {
     this.elapsed = 0;
     this.gameTime = 0;
     this.forkHint = '';
-    this.activeEnemy = null;
+    this.powerUpLabel = '';
     this.throws = [];
     this.smokeTimer = 0;
     this.dashTimer = 0;
     this.dashActive = false;
     this.abilityCd = 0;
-    this.throwCd = 0;
-    this.mailCd = 0;
+    this.shootCd = 0;
+    this.invincibleTimer = 0;
+    this.slowMoTimer = 0;
+    this.fastShotTimer = 0;
+    this.timeScale = 1;
     this.touchSteerLeft = false;
     this.touchSteerRight = false;
 
     this.applyUpgrades();
+    const diff = level.difficulty;
+    const speed = 18 + diff * 0.4;
+
     this.run = {
       ...INITIAL_RUN,
-      convoy: this.startConvoy,
+      convoy: 5,
       packages: this.startPackages,
-      maxConvoy: 50 + (this.save.purchases['convoy-cap'] ?? 0) * 10,
-      maxPackages: 25 + (this.save.purchases['convoy-cap'] ?? 0) * 3,
+      maxConvoy: 50,
+      maxPackages: 20,
       integrity: 3 + (this.save.purchases['package-armor'] ?? 0),
       maxIntegrity: 3 + (this.save.purchases['package-armor'] ?? 0),
-      baseSpeed: 13,
-      speed: 13,
+      baseSpeed: speed,
+      speed,
     };
 
-    this.coinRadius = 2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.6;
-    this.packageRadius = 2.2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.4;
-    this.combatTurretDps = 0;
-    this.mailGunDamage = 3;
-    this.mailGunRate = 0.28;
+    this.mailGunRate = 0.22;
+    this.packageRate = 0.38;
     if (this.save.equippedTurrets.includes('pepper-drone')) {
-      const lv = this.save.purchases['pepper-drone'] ?? 0;
-      this.combatTurretDps += 2 + lv * 2;
-      this.mailGunRate = Math.max(0.14, 0.28 - lv * 0.04);
+      this.mailGunRate = Math.max(0.12, 0.22 - (this.save.purchases['pepper-drone'] ?? 0) * 0.03);
     }
     if (this.save.equippedTurrets.includes('box-cannon')) {
-      const lv = this.save.purchases['box-cannon'] ?? 0;
-      this.mailGunDamage += 1 + lv;
-    }
-    if (this.save.equippedTurrets.includes('helper-beacon')) {
-      this.beaconRegen = 0.5 + (this.save.purchases['helper-beacon'] ?? 0) * 0.5;
+      this.mailGunDamage += 1 + (this.save.purchases['box-cannon'] ?? 0);
+      this.packageDamage += 2 + (this.save.purchases['box-cannon'] ?? 0);
     }
 
     const lastSeg = level.segments[level.segments.length - 1];
-    this.levelLength = lastSeg.kind === 'dropoff' ? lastSeg.z + 20 : 200;
+    this.levelLength = lastSeg.kind === 'dropoff' ? lastSeg.z + 20 : 800;
+    this.spawnHorizon = this.levelLength - 30;
+
+    this.nextObstacleZ = 30;
+    this.nextRunnerZ = 45 + Math.random() * 20;
+    this.nextPowerUpZ = 70 + Math.random() * 30;
+    this.nextPackageZ = 20;
+    this.nextCoinZ = 35;
 
     const theme = getDistrict(level.district);
     this.world.build(theme, this.levelLength);
@@ -273,27 +298,10 @@ export class Game {
     this.convoy.setCount(this.run.convoy);
 
     for (const seg of level.segments) {
-      switch (seg.kind) {
-        case 'gate':
-          this.routeGates.push(createRouteGate(this.scene, seg.z, seg.safe));
-          break;
-        case 'enemy':
-          this.enemies.push(createEnemy(this.scene, seg.enemy, seg.count, seg.z));
-          break;
-        case 'coins':
-          this.coins.push(...createCoinLine(this.scene, seg.z, seg.count, seg.spread ?? 3));
-          break;
-        case 'packages':
-          this.packagePickups.push(...createPackagePickups(this.scene, seg.z, seg.count, seg.spread ?? 3.5));
-          break;
-        case 'obstacles':
-          for (const item of seg.items) {
-            this.obstacles.push(createObstacle(this.scene, item.type, item.x, seg.z));
-          }
-          break;
-        case 'dropoff':
-          this.dropoff = createDropoff(this.scene, seg.z);
-          break;
+      if (seg.kind === 'gate') {
+        this.routeGates.push(createRouteGate(this.scene, seg.z, seg.safe));
+      } else if (seg.kind === 'dropoff') {
+        this.dropoff = createDropoff(this.scene, seg.z);
       }
     }
 
@@ -302,8 +310,7 @@ export class Game {
   }
 
   private applyUpgrades(): void {
-    this.startConvoy = 5 + (this.save.purchases['start-convoy'] ?? 0) * 3;
-    this.startPackages = 3 + (this.save.purchases['start-convoy'] ?? 0);
+    this.startPackages = 0;
     const ability = this.save.equippedAbility;
     if (ability === 'smoke-bomb') this.abilityMaxCd = 12 - (this.save.purchases['smoke-bomb'] ?? 0) * 2;
     else if (ability === 'rally-horn') this.abilityMaxCd = 15 - (this.save.purchases['rally-horn'] ?? 0) * 3;
@@ -321,9 +328,7 @@ export class Game {
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') e.preventDefault();
       if (e.code === 'ArrowRight' || e.code === 'KeyD') e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => {
-      this.keys.delete(e.code);
-    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
   }
 
   private bindPointer(): void {
@@ -331,10 +336,7 @@ export class Game {
       if (!this.running || this.dead) return;
       if (e.button === 0) {
         e.preventDefault();
-        this.fireMailGun();
-      } else if (e.button === 2) {
-        e.preventDefault();
-        this.throwPackage();
+        this.shoot();
       }
     });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -345,40 +347,55 @@ export class Game {
     if (this.player.jump()) this.shake.shake(0.08);
   }
 
-  throwPackage(): void {
-    if (!this.running || this.dead || this.throwCd > 0) return;
-    if (this.run.packages <= 0) {
-      this.cb.onToast('No packages to throw!');
-      return;
+  /** Left click / tap — mail if no packages, package throw if stocked */
+  shoot(): void {
+    if (!this.running || this.dead || this.shootCd > 0) return;
+
+    const usePackage = this.run.packages > 0;
+    const rate = usePackage ? this.packageRate : this.mailGunRate;
+    if (this.fastShotTimer > 0) this.shootCd = rate * 0.45;
+    else this.shootCd = rate;
+
+    let targetX = this.player.x;
+    let targetZ = this.player.z + 40;
+    const nearest = this.nearestRunner();
+    if (nearest) {
+      targetX = nearest.x;
+      targetZ = nearest.z;
     }
 
-    this.run.packages--;
-    this.throwCd = 0.35;
-    this.player.throwAnim();
-
-    const target = this.activeEnemy && !this.activeEnemy.defeated
-      ? this.activeEnemy.mesh.position
-      : new THREE.Vector3(this.player.x, 0, this.player.z + 30);
-
-    this.throws.push(spawnThrow(this.scene, this.player.x, this.player.z, target.x, target.z));
+    if (usePackage) {
+      this.run.packages--;
+      this.player.throwAnim();
+      this.throws.push(spawnThrow(this.scene, this.player.x, this.player.z, targetX, targetZ));
+    } else {
+      this.player.mailGunAnim();
+      this.throws.push(
+        spawnMailShot(this.scene, this.player.x, this.player.z, targetX, targetZ, this.mailGunDamage)
+      );
+    }
   }
 
   fireMailGun(): void {
-    if (!this.running || this.dead || this.mailCd > 0) return;
+    this.shoot();
+  }
 
-    this.mailCd = this.mailGunRate;
-    this.player.mailGunAnim();
+  throwPackage(): void {
+    this.shoot();
+  }
 
-    let targetX = this.player.x;
-    let targetZ = this.player.z + 35;
-    if (this.activeEnemy && !this.activeEnemy.defeated) {
-      targetX = this.activeEnemy.mesh.position.x;
-      targetZ = this.activeEnemy.mesh.position.z;
+  private nearestRunner(): RunnerEntity | null {
+    let best: RunnerEntity | null = null;
+    let bestDz = Infinity;
+    for (const r of this.runners) {
+      if (!r.alive) continue;
+      const dz = r.z - this.player.z;
+      if (dz > 0 && dz < 55 && dz < bestDz) {
+        bestDz = dz;
+        best = r;
+      }
     }
-
-    this.throws.push(
-      spawnMailShot(this.scene, this.player.x, this.player.z, targetX, targetZ, this.mailGunDamage)
-    );
+    return best;
   }
 
   useAbility(): void {
@@ -388,17 +405,15 @@ export class Game {
 
     if (ability === 'smoke-bomb') {
       this.smokeTimer = 4;
-      this.cb.onToast('Smoke bomb! Aliens confused!');
+      this.cb.onToast('Smoke!');
     } else if (ability === 'rally-horn') {
-      const bonus = 12 + (this.save.purchases['rally-horn'] ?? 0) * 4;
-      this.run.convoy = Math.min(this.run.maxConvoy, this.run.convoy + bonus);
-      this.convoy.setCount(this.run.convoy);
-      this.cb.onToast(`Rally horn! +${bonus} helpers!`);
+      this.invincibleTimer = Math.max(this.invincibleTimer, 2);
+      this.cb.onToast('Brief shield!');
     } else if (ability === 'dash') {
       this.dashActive = true;
       this.dashTimer = 0.6;
       this.player.dashOffset();
-      this.cb.onToast('Express dash!');
+      this.cb.onToast('Dash!');
     }
     this.abilityCd = this.abilityMaxCd;
   }
@@ -419,11 +434,29 @@ export class Game {
   private update(dt: number): void {
     if (this.dead) return;
 
+    if (this.slowMoTimer > 0) {
+      this.slowMoTimer -= dt;
+      this.timeScale = 0.42;
+      if (this.slowMoTimer <= 0) this.timeScale = 1;
+    } else {
+      this.timeScale = 1;
+    }
+    if (this.invincibleTimer > 0) this.invincibleTimer -= dt;
+    if (this.fastShotTimer > 0) this.fastShotTimer -= dt;
+    this.powerUpLabel =
+      this.invincibleTimer > 0
+        ? '🛡 SHIELD'
+        : this.fastShotTimer > 0
+          ? '⚡ FAST'
+          : this.slowMoTimer > 0
+            ? '🐢 SLOW-MO'
+            : '';
+
+    const scaledDt = dt * this.timeScale;
     this.elapsed += dt;
     this.gameTime += dt;
     if (this.abilityCd > 0) this.abilityCd = Math.max(0, this.abilityCd - dt);
-    if (this.throwCd > 0) this.throwCd = Math.max(0, this.throwCd - dt);
-    if (this.mailCd > 0) this.mailCd = Math.max(0, this.mailCd - dt);
+    if (this.shootCd > 0) this.shootCd = Math.max(0, this.shootCd - dt);
     if (this.smokeTimer > 0) this.smokeTimer -= dt;
     if (this.dashActive) {
       this.dashTimer -= dt;
@@ -431,9 +464,7 @@ export class Game {
     }
     if (this.obstacleCooldown > 0) this.obstacleCooldown -= dt;
 
-    const inCombat = this.activeEnemy !== null && !this.activeEnemy.defeated;
-    const speedMul = inCombat ? 0.72 : 1;
-    this.player.z += this.run.speed * speedMul * dt;
+    this.player.z += this.run.speed * scaledDt;
     this.run.distance = this.player.z;
 
     if (this.keys.has('ArrowLeft') || this.keys.has('KeyA') || this.touchSteerLeft) {
@@ -448,44 +479,45 @@ export class Game {
     this.convoy.setCount(this.run.convoy);
     this.convoy.update(this.player.x, this.player.z, dt);
 
+    this.proceduralSpawn();
+    this.cullBehind();
+
     updateCoins(this.coins, dt);
     updatePackagePickups(this.packagePickups, this.gameTime);
+    updatePowerUps(this.powerUps, this.gameTime);
+    updateRunners(this.runners, scaledDt, this.gameTime, 1);
     this.throws = updateThrows(this.throws, dt, this.scene);
     this.particles.update(dt);
     this.world.update(this.gameTime);
 
     for (const g of this.routeGates) if (!g.resolved) animateGate(g, this.gameTime);
     if (this.dropoff) animateDropoff(this.dropoff, this.gameTime);
-
-    for (const e of this.enemies) updateEnemyVisuals(e, this.gameTime, this.player.z);
     updateObstacles(this.obstacles, this.gameTime);
 
-    const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, this.coinRadius);
+    const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, 2.2);
     if (coinGain) {
       this.run.coins += coinGain;
       this.particles.collectBurst(this.player.x, this.player.z);
     }
 
-    const pkgGain = tryCollectPackages(this.packagePickups, this.player.x, this.player.z, this.packageRadius);
+    const pkgGain = tryCollectPackages(this.packagePickups, this.player.x, this.player.z, 2.2);
     if (pkgGain) {
       this.run.packages = Math.min(this.run.maxPackages, this.run.packages + pkgGain);
       this.particles.collectBurst(this.player.x, this.player.z);
     }
 
+    const pu = tryCollectPowerUp(this.powerUps, this.player.x, this.player.z, 2.2);
+    if (pu) {
+      this.applyPowerUp(pu);
+      this.particles.collectBurst(this.player.x, this.player.z);
+    }
+
     this.checkThrowHits();
     this.checkObstacles();
+    this.checkRunners();
     this.checkRouteGates();
-    this.checkEnemies(dt);
     this.checkDropoff();
     this.checkLose();
-
-    if (this.beaconRegen > 0 && !inCombat) {
-      this.regenTimer += dt;
-      if (this.regenTimer >= 2.5) {
-        this.regenTimer = 0;
-        if (this.run.convoy < this.run.maxConvoy) this.run.convoy++;
-      }
-    }
 
     const timeLeft = this.level.timeLimit - this.elapsed;
     if (timeLeft <= 0) {
@@ -493,56 +525,102 @@ export class Game {
       return;
     }
 
-    const enemyNames: Record<string, string> = {
-      pickpocket: 'Alien Grunts',
-      rival: 'Alien Raiders',
-      drone: 'UFO Scouts',
-      boss: 'Alien Commander',
-    };
-
     this.cb.onHudUpdate({
       integrity: this.run.integrity,
       maxIntegrity: this.run.maxIntegrity,
       coins: this.run.coins,
+      packages: this.run.packages,
       distance: this.run.distance,
       totalDistance: this.levelLength,
       timeLeft,
       abilityCd: this.abilityCd,
       abilityReady: this.abilityCd <= 0 && !!this.save.equippedAbility,
-      throwReady: this.throwCd <= 0 && this.run.packages > 0,
-      mailGunReady: this.mailCd <= 0,
+      shootReady: this.shootCd <= 0,
       jumpReady: !this.player.isJumping,
       forkHint: this.forkHint || undefined,
-      inCombat,
-      enemyHp: this.activeEnemy?.hp,
-      enemyMaxHp: this.activeEnemy?.maxHp,
-      enemyName: this.activeEnemy ? enemyNames[this.activeEnemy.type] : undefined,
+      powerUpLabel: this.powerUpLabel || undefined,
+      invincible: this.invincibleTimer > 0,
     });
 
-    this.cb.onCombat(inCombat, this.activeEnemy?.type);
+    this.cb.onCombat(false);
 
     this.baseCamera.set(this.player.x * 0.35, 10 + this.player.jumpY * 0.15, this.player.z - 12);
     this.lookTarget.set(this.player.x * 0.25, 1.5 + this.player.jumpY * 0.2, this.player.z + 18);
     this.shake.apply(this.camera, this.baseCamera, this.lookTarget);
   }
 
+  private applyPowerUp(kind: import('./PowerUps').PowerUpKind): void {
+    this.cb.onToast(POWER_LABELS[kind]);
+    if (kind === 'slowmo') this.slowMoTimer = 3.5;
+    else if (kind === 'fastshot') this.fastShotTimer = 5;
+    else if (kind === 'invincible') this.invincibleTimer = 4;
+  }
+
+  private proceduralSpawn(): void {
+    const diff = this.level.difficulty;
+    const ahead = this.player.z + 120;
+
+    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon) {
+      for (const lane of pickObstacleLanes()) {
+        this.obstacles.push(createObstacle(this.scene, pickRandomObstacle(), lane, this.nextObstacleZ));
+      }
+      this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 6;
+    }
+
+    while (this.nextRunnerZ < ahead && this.nextRunnerZ < this.spawnHorizon) {
+      const tier = pickRunnerTier(diff);
+      this.runners.push(createRunner(this.scene, tier, pickRandomLane(), this.nextRunnerZ));
+      this.nextRunnerZ += runnerSpacing(diff) + Math.random() * 12;
+    }
+
+    while (this.nextPowerUpZ < ahead && this.nextPowerUpZ < this.spawnHorizon) {
+      this.powerUps.push(createPowerUp(this.scene, randomPowerUpKind(), pickRandomLane(), this.nextPowerUpZ));
+      this.nextPowerUpZ += powerUpSpacing();
+    }
+
+    while (this.nextPackageZ < ahead && this.nextPackageZ < this.spawnHorizon) {
+      this.packagePickups.push(...createPackagePickups(this.scene, this.nextPackageZ, 1, 0));
+      this.nextPackageZ += packageSpacing();
+    }
+
+    while (this.nextCoinZ < ahead && this.nextCoinZ < this.spawnHorizon) {
+      this.coins.push(...createCoinLine(this.scene, this.nextCoinZ, 3 + Math.floor(Math.random() * 3), 3.5));
+      this.nextCoinZ += 22 + Math.random() * 18;
+    }
+  }
+
+  private cullBehind(): void {
+    const minZ = this.player.z - 25;
+    this.obstacles = this.obstacles.filter((o) => {
+      if (o.z < minZ) {
+        this.scene.remove(o.mesh);
+        return false;
+      }
+      return true;
+    });
+    this.runners = this.runners.filter((r) => {
+      if (!r.alive || r.z < minZ) {
+        if (r.alive) this.scene.remove(r.mesh);
+        return false;
+      }
+      return true;
+    });
+  }
+
   private checkThrowHits(): void {
     for (const t of this.throws) {
-      for (const enemy of this.enemies) {
-        if (enemy.defeated) continue;
-        const dx = t.mesh.position.x - enemy.mesh.position.x;
-        const dz = t.mesh.position.z - enemy.mesh.position.z;
-        if (dx * dx + dz * dz < 4) {
-          enemy.hp -= t.damage;
-          updateHpBar(enemy);
+      for (const r of this.runners) {
+        if (!r.alive) continue;
+        const dx = t.mesh.position.x - r.x;
+        const dz = t.mesh.position.z - r.z;
+        if (dx * dx + dz * dz < 1.8) {
+          r.hp -= t.damage;
           this.particles.hitBurst(t.mesh.position.x, t.mesh.position.z);
-          this.shake.shake(0.4);
           t.life = 0;
-          if (enemy.hp <= 0) {
-            enemy.defeated = true;
-            enemy.mesh.visible = false;
-            this.run.coins += enemy.type === 'boss' ? 50 : 20;
-            if (this.activeEnemy === enemy) this.activeEnemy = null;
+          if (r.hp <= 0) {
+            r.alive = false;
+            r.mesh.visible = false;
+            this.run.coins += r.tier === 'stalker' ? 15 : r.tier === 'raider' ? 10 : 5;
           }
         }
       }
@@ -550,46 +628,36 @@ export class Game {
   }
 
   private checkObstacles(): void {
-    if (this.obstacleCooldown > 0) return;
+    if (this.obstacleCooldown > 0 || this.invincibleTimer > 0) return;
 
     for (const obs of this.obstacles) {
       if (obs.hit) continue;
       const dz = Math.abs(this.player.z - obs.z);
       if (dz > 1.4) continue;
       const dx = Math.abs(this.player.x - obs.x);
-      if (dx > obs.radius + 0.35) continue;
-
+      if (dx > obs.radius + 0.3) continue;
       if (this.player.jumpY > obstacleClearHeight(obs.kind) + 0.08) continue;
       if (this.dashActive) {
         obs.hit = true;
         obs.mesh.visible = false;
-        this.particles.hitBurst(obs.x, obs.z);
         continue;
       }
 
-      obs.hit = true;
-      obs.mesh.visible = false;
-      this.obstacleCooldown = 0.8;
-      this.run.integrity--;
-      this.run.integrityLost = true;
-      this.run.convoy = Math.max(0, this.run.convoy - 2);
-      this.convoy.setCount(this.run.convoy);
-      this.player.flashHurt();
-      this.player.knockback(obs.x);
-      this.shake.shake(0.7);
-      this.cb.onDamageFlash();
-      this.particles.hitBurst(this.player.x, this.player.z);
+      this.die('stolen');
+      return;
+    }
+  }
 
-      const labels: Record<string, string> = {
-        barricade: 'Crunch!',
-        pod: 'Splat!',
-        cones: 'Wipeout!',
-        debris: 'Crash!',
-      };
-      this.cb.onToast(labels[obs.kind] ?? 'Ouch!');
+  private checkRunners(): void {
+    if (this.invincibleTimer > 0 || this.smokeTimer > 0) return;
 
-      if (this.run.integrity <= 0) {
-        this.die('stolen');
+    for (const r of this.runners) {
+      if (!r.alive) continue;
+      const dx = Math.abs(this.player.x - r.x);
+      const dz = Math.abs(this.player.z - r.z);
+      const rad = runnerTouchRadius(r.tier);
+      if (dx < rad && dz < 1.3 && this.player.jumpY < 0.55) {
+        this.die('overwhelmed');
         return;
       }
     }
@@ -637,58 +705,8 @@ export class Game {
     }
   }
 
-  private checkEnemies(dt: number): void {
-    for (const enemy of this.enemies) {
-      if (enemy.defeated) continue;
-
-      if (this.player.z >= enemy.z - 35 && !enemy.active) enemy.approach = 1;
-
-      if (this.player.z >= enemy.z - 12 && !enemy.active && !enemy.defeated) {
-        enemy.active = true;
-        this.activeEnemy = enemy;
-        this.shake.shake(0.5);
-        this.cb.onToast(enemy.type === 'boss' ? '⚠ COMMANDER!' : '⚠ ALIENS!');
-        this.cb.onCombat(true, enemy.type);
-      }
-    }
-
-    if (this.activeEnemy && !this.activeEnemy.defeated && this.smokeTimer <= 0) {
-      const { convoyLoss, done } = clashCombat(this.activeEnemy, this.run.convoy, dt, this.combatTurretDps);
-      if (convoyLoss > 0) {
-        this.run.convoy = Math.max(0, this.run.convoy - convoyLoss);
-        this.convoy.setCount(this.run.convoy);
-      }
-
-      if (this.run.convoy <= 0 && !done) {
-        this.run.integrity--;
-        this.run.integrityLost = true;
-        this.player.flashHurt();
-        this.cb.onDamageFlash();
-        this.shake.shake(0.8);
-        this.particles.hitBurst(this.player.x, this.player.z + 5);
-        this.cb.onToast('Convoy wiped!');
-        if (this.run.integrity <= 0) {
-          this.die('overwhelmed');
-          return;
-        }
-        this.run.convoy = Math.max(3, Math.floor(this.startConvoy * 0.5));
-        this.convoy.setCount(this.run.convoy);
-      }
-
-      if (done) {
-        this.run.coins += this.activeEnemy.type === 'boss' ? 60 : 25;
-        this.particles.burst(this.activeEnemy.mesh.position.x, 2, this.activeEnemy.mesh.position.z, '#FFD54F', 20);
-        this.cb.onToast(`${this.activeEnemy.type === 'boss' ? 'Commander' : 'Aliens'} defeated!`);
-        this.activeEnemy = null;
-        this.cb.onCombat(false);
-      }
-    }
-  }
-
   private checkDropoff(): void {
     if (!this.dropoff || this.dropoff.reached) return;
-    const blocking = this.enemies.some((e) => !e.defeated && e.z <= this.dropoff.z + 10 && e.z > this.player.z - 20);
-    if (blocking || (this.activeEnemy && !this.activeEnemy.defeated)) return;
     if (this.player.z >= this.dropoff.z - 3) {
       this.dropoff.reached = true;
       this.particles.gateBurst(0, this.dropoff.z, '#FFD54F');
@@ -698,9 +716,6 @@ export class Game {
 
   private checkLose(): void {
     if (this.run.integrity <= 0) this.die('stolen');
-    if (this.run.packages <= 0 && this.run.convoy <= 0 && this.activeEnemy) {
-      this.die('overwhelmed');
-    }
   }
 
   private die(reason: DeathReason): void {
@@ -721,20 +736,19 @@ export class Game {
     let stars = 0;
     if (won) {
       stars = 1;
-      if (this.run.integrity >= this.run.maxIntegrity - 1) stars = 2;
-      if (!this.run.integrityLost && this.run.bonusRoute) stars = 3;
-      if (!this.run.integrityLost && this.run.packages >= 3) stars = Math.max(stars, 3);
+      if (!this.run.integrityLost) stars = 2;
+      if (!this.run.integrityLost && this.run.coins >= 50) stars = 3;
     }
 
     const coinBonus = won ? 25 + stars * 20 : Math.floor(this.run.coins * 0.3);
     const totalCoins = this.run.coins + (won ? coinBonus : 0);
 
     const reasons: Record<DeathReason, string> = {
-      stolen: 'The aliens stole your VIP package!',
-      overwhelmed: 'Your convoy was overwhelmed!',
+      stolen: 'Crashed into a hazard!',
+      overwhelmed: 'An alien tackled you!',
       timeout: 'Delivery window expired!',
-      blocked: 'You could not pay the toll!',
-      wrong_turn: 'Wrong turn at the fork — dead end!',
+      blocked: 'Blocked!',
+      wrong_turn: 'Wrong turn — dead end!',
     };
 
     this.cb.onEnd({
@@ -762,17 +776,19 @@ export class Game {
 
   private cleanup(): void {
     for (const g of this.routeGates) disposeEntity(g.mesh, this.scene);
-    for (const e of this.enemies) disposeEnemy(e, this.scene);
+    disposeRunners(this.runners, this.scene);
     disposeCoins(this.coins, this.scene);
     disposePickups(this.packagePickups, this.scene);
+    disposePowerUps(this.powerUps, this.scene);
     disposeObstacles(this.obstacles, this.scene);
     this.throws = updateThrows(this.throws, 999, this.scene);
     if (this.dropoff) disposeEntity(this.dropoff.mesh, this.scene);
     this.particles.clear();
     this.routeGates = [];
-    this.enemies = [];
+    this.runners = [];
     this.coins = [];
     this.packagePickups = [];
+    this.powerUps = [];
     this.obstacles = [];
     if (this.player) this.player.dispose(this.scene);
     if (this.convoy) this.convoy.dispose();

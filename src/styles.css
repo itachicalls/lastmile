@@ -579,10 +579,45 @@ kbd {
   flex-wrap: nowrap;
 }
 
-.mail-btn { border-color: rgba(255,213,79,0.55); }
-.mail-btn.ready { border-color: #FFD54F; box-shadow: 0 0 16px rgba(255,213,79,0.35); }
-.throw-btn { border-color: rgba(255,152,0,0.55); }
-.throw-btn.ready { border-color: #FF9800; box-shadow: 0 0 16px rgba(255,152,0,0.35); }
+.hud-ammo {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.2rem;
+  font-weight: 900;
+  z-index: 5;
+  pointer-events: none;
+  background: rgba(0,0,0,0.55);
+  padding: 6px 16px;
+  border-radius: 999px;
+}
+
+.hud-powerup {
+  position: absolute;
+  top: max(48px, calc(env(safe-area-inset-top) + 36px));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #FFD54F;
+  z-index: 5;
+  pointer-events: none;
+  text-shadow: 0 0 12px rgba(255,213,79,0.8);
+}
+.hud-powerup.hidden { display: none; }
+
+.hud-hearts.invincible-glow {
+  animation: shield-pulse 0.5s infinite alternate;
+  color: #E040FB;
+}
+@keyframes shield-pulse {
+  from { text-shadow: 0 0 8px #E040FB; }
+  to { text-shadow: 0 0 20px #EA80FC; }
+}
+
+.shoot-btn { border-color: rgba(255,213,79,0.55); }
+.shoot-btn.ready { border-color: #FFD54F; box-shadow: 0 0 16px rgba(255,213,79,0.35); }
 .jump-btn { border-color: rgba(66,165,245,0.55); }
 .jump-btn.ready { border-color: #42A5F5; box-shadow: 0 0 16px rgba(66,165,245,0.35); }
 

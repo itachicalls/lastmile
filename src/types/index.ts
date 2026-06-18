@@ -19,6 +19,7 @@ export type SegmentType =
   | { kind: 'gate'; z: number; safe: 'left' | 'right' }
   | { kind: 'blocker'; z: number; blocker: BlockerKind; required?: number; label: string; packageCost?: number }
   | { kind: 'enemy'; z: number; enemy: EnemyType; count: number }
+  | { kind: 'runner'; z: number; tier?: 'grunt' | 'raider' | 'stalker' }
   | { kind: 'coins'; z: number; count: number; spread?: number }
   | { kind: 'packages'; z: number; count: number; spread?: number }
   | { kind: 'obstacles'; z: number; items: { x: number; type: ObstacleKind }[] }
@@ -51,6 +52,7 @@ export type LevelDef = {
   briefing: string;
   segments: SegmentType[];
   timeLimit: number;
+  difficulty: number;
 };
 
 export type TurretId = 'pepper-drone' | 'box-cannon' | 'helper-beacon';

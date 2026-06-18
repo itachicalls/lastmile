@@ -11,12 +11,12 @@ export function createCoinLine(
   scene: THREE.Scene,
   z: number,
   count: number,
-  spread = 3
+  _spread = 3
 ): CoinEntity[] {
   const coins: CoinEntity[] = [];
+  const lanes = [-3.2, -1.6, 0, 1.6, 3.2];
   for (let i = 0; i < count; i++) {
-    const t = count <= 1 ? 0 : (i / (count - 1)) * 2 - 1;
-    const x = t * spread;
+    const x = lanes[Math.floor(Math.random() * lanes.length)];
     const geo = new THREE.CylinderGeometry(0.25, 0.25, 0.08, 16);
     const mat = new THREE.MeshLambertMaterial({
       color: '#FFD54F',

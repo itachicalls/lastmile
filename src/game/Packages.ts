@@ -22,9 +22,9 @@ export function createPackagePickups(
   spread = 3.5
 ): PackagePickup[] {
   const pickups: PackagePickup[] = [];
+  const lanes = [-3.2, -1.6, 0, 1.6, 3.2];
   for (let i = 0; i < count; i++) {
-    const t = count <= 1 ? 0 : (i / (count - 1)) * 2 - 1;
-    const x = t * spread;
+    const x = lanes[Math.floor(Math.random() * lanes.length)];
     const group = new THREE.Group();
     group.position.set(x, 0, z + (i % 3) * 0.6);
 

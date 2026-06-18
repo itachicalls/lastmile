@@ -130,10 +130,9 @@ export class UIManager {
         <div class="briefing-box">${lvl.briefing}</div>
         <div class="controls-grid">
           <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer lanes</div>
-          <div class="control-item"><kbd>SPACE</kbd> Jump obstacles</div>
-          <div class="control-item"><span class="tap-icon">👆</span> Left click / left tap = mail gun</div>
-          <div class="control-item"><span class="tap-icon">👆</span> Right click / right tap = throw 📦</div>
-          <div class="control-item">Forks: green ✓ SAFE lane only — wrong lane kills you!</div>
+          <div class="control-item"><span class="tap-icon">👆</span> Click / tap = shoot (📧 mail · 📦 if stocked)</div>
+          <div class="control-item"><kbd>SPACE</kbd> Jump · Green/Red/Yellow aliens run at you</div>
+          <div class="control-item">Power-ups: Slow-Mo · Fast Shot · Shield</div>
           <div class="control-item">⚡ Ability · Convoy auto-fights aliens</div>
         </div>
         <button class="btn btn-primary btn-glow" id="btn-start">🚀 Start Delivery</button>
@@ -246,6 +245,8 @@ export class UIManager {
         </div>
 
         <div class="hud-hearts" id="hud-hearts"></div>
+        <div class="hud-ammo" id="hud-ammo">📧</div>
+        <div class="hud-powerup hidden" id="hud-powerup"></div>
 
         <div class="hud-panel hud-right hud-minimal">
           <div class="hud-stat-inline">🪙 <span id="hud-coins">0</span></div>
@@ -276,15 +277,10 @@ export class UIManager {
             <span class="action-icon">⬆</span>
             <span>JUMP</span>
           </button>
-          <button class="action-btn mail-btn" id="mail-btn" title="Mail gun (Left click)">
-            <span class="action-icon">📧</span>
-            <span>MAIL</span>
-            <div class="ability-cd hidden" id="mail-cd"></div>
-          </button>
-          <button class="action-btn throw-btn" id="throw-btn" title="Throw package (Right click)">
-            <span class="action-icon">📦</span>
-            <span>THROW</span>
-            <div class="ability-cd hidden" id="throw-cd"></div>
+          <button class="action-btn shoot-btn" id="shoot-btn" title="Shoot (click)">
+            <span class="action-icon" id="shoot-icon">📧</span>
+            <span id="shoot-label">SHOOT</span>
+            <div class="ability-cd hidden" id="shoot-cd"></div>
           </button>
           <button class="action-btn ability-btn" id="ability-btn" disabled title="Equipped ability">
             <span class="action-icon">⚡</span>
@@ -334,14 +330,9 @@ export class UIManager {
       this.game?.jump();
     });
 
-    document.getElementById('mail-btn')!.addEventListener('click', (e) => {
+    document.getElementById('shoot-btn')!.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.game?.fireMailGun();
-    });
-
-    document.getElementById('throw-btn')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.game?.throwPackage();
+      this.game?.shoot();
     });
 
     btn.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -365,6 +356,31 @@ export class UIManager {
     const prog = document.getElementById('progress-fill');
     if (prog) prog.style.width = `${Math.min(100, (d.distance / d.totalDistance) * 100)}%`;
 
+    const ammo = document.getElementById('hud-ammo');
+    if (ammo) ammo.textContent = d.packages > 0 ? `📦×${d.packages}` : '📧';
+
+    const shootIcon = document.getElementById('shoot-icon');
+    const shootLabel = document.getElementById('shoot-label');
+    if (shootIcon) shootIcon.textContent = d.packages > 0 ? '📦' : '📧';
+    if (shootLabel) shootLabel.textContent = d.packages > 0 ? 'PACK' : 'MAIL';
+
+    const puEl = document.getElementById('hud-powerup');
+    if (puEl) {
+      if (d.powerUpLabel) {
+        puEl.textContent = d.powerUpLabel;
+        puEl.classList.remove('hidden');
+      } else {
+        puEl.classList.add('hidden');
+      }
+    }
+
+    if (d.invincible) {
+      const heartsEl = document.getElementById('hud-hearts');
+      heartsEl?.classList.add('invincible-glow');
+    } else {
+      document.getElementById('hud-hearts')?.classList.remove('invincible-glow');
+    }
+
     const forkHint = document.getElementById('fork-hint');
     if (forkHint) {
       if (d.forkHint) {
@@ -375,40 +391,16 @@ export class UIManager {
       }
     }
 
-    if (d.inCombat && d.enemyHp !== undefined && d.enemyMaxHp) {
-      set('combat-title', `⚠ ${d.enemyName ?? 'ENEMY'}`);
-      const cb = document.getElementById('combat-bar');
-      if (cb) cb.style.width = `${(d.enemyHp / d.enemyMaxHp) * 100}%`;
-    }
-
-    const mailCd = document.getElementById('mail-cd');
-    const mailBtn = document.getElementById('mail-btn');
-    if (mailCd && mailBtn) {
-      mailBtn.classList.toggle('ready', d.mailGunReady);
-      if (d.mailGunReady) {
-        mailCd.classList.add('hidden');
-      } else {
-        mailCd.classList.remove('hidden');
-        mailCd.textContent = '!';
-      }
-    }
-
-    const throwCdEl = document.getElementById('throw-cd');
-    const throwBtn = document.getElementById('throw-btn');
-    if (throwCdEl && throwBtn) {
-      throwBtn.classList.toggle('ready', d.throwReady);
-      throwCdEl.classList.toggle('hidden', d.throwReady);
-      if (!d.throwReady) throwCdEl.textContent = '!';
-    }
+    const shootBtn = document.getElementById('shoot-btn');
+    const shootCd = document.getElementById('shoot-cd');
+    if (shootBtn) shootBtn.classList.toggle('ready', d.shootReady);
+    if (shootCd) shootCd.classList.toggle('hidden', d.shootReady);
 
     const jumpBtn = document.getElementById('jump-btn');
     if (jumpBtn) jumpBtn.classList.toggle('ready', d.jumpReady);
 
     const tapHint = document.getElementById('tap-hint');
-    if (tapHint) {
-      tapHint.classList.toggle('ready', d.throwReady);
-      tapHint.classList.toggle('hidden', !d.throwReady && !d.inCombat);
-    }
+    if (tapHint) tapHint.classList.toggle('hidden', false);
 
     const cdEl = document.getElementById('ability-cd');
     const btn = document.getElementById('ability-btn') as HTMLButtonElement;
