@@ -520,6 +520,48 @@ kbd {
   pointer-events: none;
 }
 .blocker-hint.hidden { display: none; }
+.blocker-hint.near-done {
+  background: rgba(0, 200, 83, 0.92);
+  animation: hint-glow 0.7s infinite alternate;
+}
+@keyframes hint-glow {
+  from { box-shadow: 0 0 8px rgba(0, 200, 83, 0.3); }
+  to { box-shadow: 0 0 18px rgba(0, 200, 83, 0.7); }
+}
+
+.gate-prompt {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -20%);
+  background: rgba(255, 213, 79, 0.95);
+  color: #1a1020;
+  padding: 14px 22px;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  font-weight: 900;
+  text-align: center;
+  max-width: 92vw;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  border: 2px solid rgba(255,152,0,0.6);
+}
+.gate-prompt.hidden { display: none; }
+
+.hud-bottom {
+  position: absolute;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  pointer-events: auto;
+  z-index: 4;
+}
+
+.mail-btn { border-color: rgba(255,213,79,0.55); }
+.mail-btn.ready { border-color: #FFD54F; box-shadow: 0 0 16px rgba(255,213,79,0.35); }
 
 .hud-panel {
   position: absolute;
@@ -642,16 +684,6 @@ kbd {
 @keyframes flash { from{opacity:1} to{opacity:0} }
 
 /* Action buttons */
-.hud-bottom {
-  position: absolute;
-  bottom: max(20px, env(safe-area-inset-bottom));
-  right: max(16px, env(safe-area-inset-right));
-  display: flex;
-  gap: 16px;
-  pointer-events: auto;
-  z-index: 4;
-}
-
 .action-btn {
   width: 72px;
   height: 72px;
@@ -833,7 +865,7 @@ kbd {
   .hud-value { font-size: 0.95rem; }
   .touch-steer { height: 70%; padding-bottom: 60px; }
   .tap-hint { bottom: 56px; font-size: 0.72rem; padding: 6px 14px; }
-  .hud-bottom { bottom: 8px; right: 8px; }
+  .hud-bottom { bottom: 8px; left: 50%; transform: translateX(-50%); }
   .action-btn { width: 56px; height: 56px; }
   .combat-banner { transform: translate(-50%, -60%); padding: 8px 16px; }
 }

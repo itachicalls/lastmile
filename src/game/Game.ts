@@ -72,6 +72,8 @@ export type HudData = {
   throwReady: boolean;
   mailGunReady: boolean;
   blockerHint?: string;
+  gatePrompt?: string;
+  blockerProgress?: number;
   inCombat: boolean;
   enemyHp?: number;
   enemyMaxHp?: number;
@@ -137,6 +139,10 @@ export class Game {
   private beaconRegen = 0;
   private blockerHint = '';
   private gateHintShown = new Set<number>();
+  private gateLaneHold = new Map<number, { left: number; right: number }>();
+  private gatePrompt = '';
+  private bounceWarned = new Set<number>();
+  private lastBlockerToastPct = -1;
   private deathReason: DeathReason = 'stolen';
 
   private cb: GameCallbacks;
@@ -174,6 +180,7 @@ export class Game {
   bindTouchControls(hudEl: HTMLElement): void {
     this.inputCleanup?.();
 
+    const cleanups: (() => void)[] = [];
     const bindSteer = (el: Element | null, left: boolean) => {
       if (!el) return;
       const set = (active: boolean) => {
@@ -189,6 +196,12 @@ export class Game {
       el.addEventListener('pointerup', up);
       el.addEventListener('pointerleave', up);
       el.addEventListener('pointercancel', up);
+      cleanups.push(() => {
+        el.removeEventListener('pointerdown', down);
+        el.removeEventListener('pointerup', up);
+        el.removeEventListener('pointerleave', up);
+        el.removeEventListener('pointercancel', up);
+      });
     };
     bindSteer(hudEl.querySelector('#steer-left'), true);
     bindSteer(hudEl.querySelector('#steer-right'), false);
@@ -196,7 +209,7 @@ export class Game {
     const onHudPointer = (e: PointerEvent) => {
       if (!this.running || this.dead) return;
       const t = e.target as HTMLElement;
-      if (t.closest('#steer-left, #steer-right, #ability-btn, #scan-btn, .hud-panel, .btn')) return;
+      if (t.closest('#steer-left, #steer-right, #ability-btn, #scan-btn, #mail-btn, .hud-panel, .btn')) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       this.throwPackage();
     };
@@ -204,6 +217,7 @@ export class Game {
 
     this.inputCleanup = () => {
       hudEl.removeEventListener('pointerdown', onHudPointer);
+      cleanups.forEach((fn) => fn());
     };
   }
 
@@ -229,6 +243,10 @@ export class Game {
     this.mailCd = 0;
     this.blockerHint = '';
     this.gateHintShown.clear();
+    this.gateLaneHold.clear();
+    this.gatePrompt = '';
+    this.bounceWarned.clear();
+    this.lastBlockerToastPct = -1;
     this.touchSteerLeft = false;
     this.touchSteerRight = false;
 
@@ -330,8 +348,7 @@ export class Game {
       this.keys.add(e.code);
       if (e.code === 'Space') {
         e.preventDefault();
-        this.tryScan();
-        this.useAbility();
+        if (!e.repeat) this.onSpaceAction();
       }
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
         e.preventDefault();
@@ -345,6 +362,46 @@ export class Game {
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
     });
+  }
+
+  /** SPACE = mail gun / scan / gate interact (never auto-fires) */
+  onSpaceAction(): void {
+    if (!this.running || this.dead) return;
+
+    if (this.activeBlocker && !this.activeBlocker.cleared) {
+      if (this.activeBlocker.blocker === 'scan') {
+        this.tryScan();
+        return;
+      }
+      if (Math.abs(this.player.z - this.activeBlocker.z) <= 10) {
+        this.tryBlockerAction();
+        return;
+      }
+    }
+
+    const routeGate = this.getActiveRouteGate();
+    if (routeGate && Math.abs(this.player.x) < 1.0) {
+      this.resolveRouteGate(routeGate, 'center');
+      return;
+    }
+
+    this.fireMailGun();
+  }
+
+  private isSteeringLeft(): boolean {
+    return this.keys.has('KeyA') || this.keys.has('ArrowLeft') || this.touchSteerLeft;
+  }
+
+  private isSteeringRight(): boolean {
+    return this.keys.has('KeyD') || this.keys.has('ArrowRight') || this.touchSteerRight;
+  }
+
+  private getActiveRouteGate(): GateEntity | null {
+    for (const gate of this.routeGates) {
+      if (gate.resolved) continue;
+      if (this.player.z >= gate.z - 4 && this.player.z <= gate.z + 2) return gate;
+    }
+    return null;
   }
 
   throwPackage(): void {
@@ -366,15 +423,115 @@ export class Game {
     this.throws.push(t);
   }
 
-  /** Mail gun — auto-fires in combat; weaker than package throws */
+  /** Mail gun — SPACE or 📧 button; weaker than package throws */
   fireMailGun(): void {
     if (!this.running || this.dead || this.mailCd > 0) return;
-    if (!this.activeEnemy || this.activeEnemy.defeated) return;
 
     this.mailCd = this.mailGunRate;
-    const target = this.activeEnemy.mesh.position;
-    const shot = spawnMailShot(this.scene, this.player.x, this.player.z, target.x, target.z, this.mailGunDamage);
+    this.player.mailGunAnim();
+
+    let targetX = this.player.x;
+    let targetZ = this.player.z + 35;
+    if (this.activeEnemy && !this.activeEnemy.defeated) {
+      targetX = this.activeEnemy.mesh.position.x;
+      targetZ = this.activeEnemy.mesh.position.z;
+    } else if (this.activeBlocker && !this.activeBlocker.cleared) {
+      targetX = 0;
+      targetZ = this.activeBlocker.z;
+    }
+
+    const shot = spawnMailShot(this.scene, this.player.x, this.player.z, targetX, targetZ, this.mailGunDamage);
     this.throws.push(shot);
+  }
+
+  /** Player-initiated blocker progress — no passive auto-open */
+  tryBlockerAction(): void {
+    const b = this.activeBlocker;
+    if (!b || b.cleared) return;
+    if (Math.abs(this.player.z - b.z) > 10) return;
+
+    if (b.packageCost > 0 && b.progress < 0.05) {
+      if (this.run.packages < b.packageCost) {
+        this.cb.onToast(`Need ${b.packageCost} packages to use this gate!`);
+        return;
+      }
+      this.run.packages -= b.packageCost;
+      b.progress = 0.05;
+      this.cb.onToast(`Paid ${b.packageCost} packages`);
+    }
+
+    if (b.blocker === 'ram') {
+      if (this.dashActive) {
+        this.clearBlocker(b);
+        this.shake.shake(0.8);
+        this.cb.onToast('Dash smashed the lock!');
+        return;
+      }
+      if (this.run.convoy < 2) {
+        this.cb.onToast('Need convoy helpers! Hold SPACE to ram, or equip Rally Horn.');
+        return;
+      }
+      const ramHit = (1 / Math.max(4, b.required)) * (0.95 + this.mailGunDamage * 0.04);
+      b.progress = Math.min(1, b.progress + ramHit);
+      if (Math.random() < 0.35) {
+        this.run.convoy = Math.max(0, this.run.convoy - 1);
+        this.convoy.setCount(this.run.convoy);
+      }
+      this.shake.shake(0.15);
+      if (b.progress >= 1) {
+        this.clearBlocker(b);
+        this.particles.gateBurst(0, b.z, '#FF5252');
+        this.cb.onToast('Lock broken!');
+      } else {
+        const pct = Math.floor(b.progress * 100);
+        if (pct >= 25 && pct !== this.lastBlockerToastPct && pct % 25 === 0) {
+          this.lastBlockerToastPct = pct;
+          this.cb.onToast(`Ramming… ${pct}%`);
+        }
+      }
+      return;
+    }
+
+    if (b.blocker === 'stamp') {
+      if (this.run.stamps > 0) {
+        b.progress += 0.5;
+        if (b.progress >= 1) {
+          this.run.stamps--;
+          this.clearBlocker(b);
+          this.particles.gateBurst(0, b.z, '#AB47BC');
+          this.cb.onToast('Stamp approved!');
+        } else {
+          this.cb.onToast(`Stamping… ${Math.floor(b.progress * 100)}%`);
+        }
+      } else if (this.run.convoy >= 4) {
+        b.progress += 0.18;
+        if (b.progress >= 1) {
+          this.run.convoy = Math.max(0, this.run.convoy - 3);
+          this.convoy.setCount(this.run.convoy);
+          this.clearBlocker(b);
+          this.cb.onToast('Convoy vouched for you!');
+        }
+      } else {
+        this.cb.onToast('Need a stamp or 4+ convoy helpers — press SPACE to retry');
+      }
+      return;
+    }
+
+    if (b.blocker === 'toll') {
+      if (this.run.packages > 0) {
+        this.run.packages--;
+        b.progress += 0.34;
+        if (b.progress >= 1) {
+          this.clearBlocker(b);
+          this.particles.gateBurst(0, b.z, '#FFB74D');
+          this.cb.onToast('Toll paid — gate open!');
+        } else {
+          this.cb.onToast(`Paying toll… ${Math.floor(b.progress * 100)}%`);
+        }
+      } else {
+        this.cb.onToast('Need packages to pay toll — collect 📦 on the road');
+      }
+    }
   }
 
   useAbility(): void {
@@ -504,7 +661,15 @@ export class Game {
     this.checkThrowHits();
     this.checkObstacles();
 
-    if (inCombat && this.mailCd <= 0) this.fireMailGun();
+    if (this.dashActive && this.activeBlocker && !this.activeBlocker.cleared) {
+      if (this.activeBlocker.blocker === 'ram' && Math.abs(this.player.z - this.activeBlocker.z) < 10) {
+        this.clearBlocker(this.activeBlocker);
+        this.shake.shake(0.8);
+        this.cb.onToast('Dash smashed the lock!');
+      }
+    }
+
+    this.updateRouteGateCommit(dt);
     this.checkRouteGates();
     this.checkBlockers(dt);
     this.checkEnemies(dt);
@@ -547,8 +712,13 @@ export class Game {
       abilityCd: this.abilityCd,
       abilityReady: this.abilityCd <= 0 && !!this.save.equippedAbility,
       throwReady: this.throwCd <= 0 && this.run.packages > 0,
-      mailGunReady: this.mailCd <= 0 && inCombat,
+      mailGunReady: this.mailCd <= 0,
       blockerHint: this.blockerHint || undefined,
+      gatePrompt: this.gatePrompt || undefined,
+      blockerProgress:
+        this.activeBlocker && !this.activeBlocker.cleared
+          ? Math.floor(this.activeBlocker.progress * 100)
+          : undefined,
       inCombat,
       enemyHp: this.activeEnemy?.hp,
       enemyMaxHp: this.activeEnemy?.maxHp,
@@ -567,18 +737,21 @@ export class Game {
     for (const t of this.throws) {
       if (this.activeBlocker && !this.activeBlocker.cleared) {
         const b = this.activeBlocker;
-        const dz = Math.abs(t.mesh.position.z - b.z);
-        const dx = Math.abs(t.mesh.position.x);
-        if (dz < 2.5 && dx < 4.5) {
-          b.progress += t.damage * 0.025;
-          this.particles.hitBurst(t.mesh.position.x, t.mesh.position.z);
-          t.life = 0;
-          if (b.progress >= 1) {
-            this.clearBlocker(b);
-            this.particles.gateBurst(0, b.z, '#00E676');
-            this.cb.onToast('Gate destroyed!');
+        if (b.blocker === 'ram' && (b.packageCost <= 0 || b.progress >= 0.05)) {
+          const dz = Math.abs(t.mesh.position.z - b.z);
+          const dx = Math.abs(t.mesh.position.x);
+          if (dz < 2.5 && dx < 4.5) {
+            const hit = t.damage * 0.012 * (1 + this.blockerDps * 0.15) * (1 / Math.max(4, b.required));
+            b.progress = Math.min(1, b.progress + hit);
+            this.particles.hitBurst(t.mesh.position.x, t.mesh.position.z);
+            t.life = 0;
+            if (b.progress >= 1) {
+              this.clearBlocker(b);
+              this.particles.gateBurst(0, b.z, '#FF5252');
+              this.cb.onToast('Lock broken!');
+            }
+            continue;
           }
-          continue;
         }
       }
 
@@ -654,148 +827,137 @@ export class Game {
   private enforceRouteGateStops(): void {
     for (const gate of this.routeGates) {
       if (gate.resolved) continue;
-      if (this.player.z >= gate.z - 3 && this.player.z <= gate.z + 2) {
+      if (this.player.z >= gate.z - 4 && this.player.z <= gate.z + 2) {
         if (!this.gateHintShown.has(gate.z)) {
           this.gateHintShown.add(gate.z);
-          this.cb.onToast('Gate ahead! Steer LEFT, RIGHT, or CENTER lane');
+          this.cb.onToast('Hold ← LEFT or RIGHT → · SPACE = safe center');
         }
-        if (this.player.z > gate.z - 1.5) {
-          this.player.z = gate.z - 1.5;
-        }
+        const holdLine = gate.z - 1.2;
+        if (this.player.z > holdLine) this.player.z = holdLine;
       }
     }
+  }
+
+  private updateRouteGateCommit(dt: number): void {
+    this.gatePrompt = '';
+    for (const gate of this.routeGates) {
+      if (gate.resolved) continue;
+      if (this.player.z < gate.z - 4 || this.player.z > gate.z + 2) continue;
+
+      const hold = this.gateLaneHold.get(gate.z) ?? { left: 0, right: 0 };
+      const cx = this.player.x;
+      const onLeft = cx > 1.0;
+      const onRight = cx < -1.0;
+
+      if (onLeft && this.isSteeringLeft()) {
+        hold.left += dt;
+        hold.right = 0;
+        this.gatePrompt = `← LEFT: ${Math.min(100, Math.floor((hold.left / 0.5) * 100))}%`;
+        if (hold.left >= 0.5) this.resolveRouteGate(gate, 'left');
+      } else if (onRight && this.isSteeringRight()) {
+        hold.right += dt;
+        hold.left = 0;
+        this.gatePrompt = `RIGHT →: ${Math.min(100, Math.floor((hold.right / 0.5) * 100))}%`;
+        if (hold.right >= 0.5) this.resolveRouteGate(gate, 'right');
+      } else {
+        hold.left = Math.max(0, hold.left - dt * 2);
+        hold.right = Math.max(0, hold.right - dt * 2);
+        this.gatePrompt = 'Hold ← LEFT · SPACE = safe CENTER · Hold RIGHT →';
+      }
+      this.gateLaneHold.set(gate.z, hold);
+    }
+  }
+
+  private resolveRouteGate(gate: GateEntity, choice: 'left' | 'right' | 'center'): void {
+    if (gate.resolved) return;
+
+    const finishGate = (msg: string, burstX: number, color: string) => {
+      gate.resolved = true;
+      gate.roadBarrier.visible = false;
+      this.gateLaneHold.delete(gate.z);
+      this.particles.gateBurst(burstX, gate.z, color);
+      this.cb.onToast(msg);
+      if (this.player.z < gate.z + 1.5) this.player.z = gate.z + 1.5;
+    };
+
+    if (choice === 'center') {
+      this.run.convoy = Math.min(this.run.maxConvoy, this.run.convoy + 3);
+      this.convoy.setCount(this.run.convoy);
+      finishGate('Safe center route — +3 convoy', 0, '#FFD54F');
+      return;
+    }
+
+    const choseLeft = choice === 'left';
+    const option = choseLeft ? gate.left : gate.right;
+    const cost = option.packageCost ?? 0;
+    if (cost > 0 && this.run.packages < cost) {
+      finishGate(`Need ${cost} packages! VIP damaged!`, this.player.x, '#FF5252');
+      this.run.integrity--;
+      this.run.integrityLost = true;
+      this.player.flashHurt();
+      this.shake.shake(0.6);
+      this.cb.onDamageFlash();
+      if (this.run.integrity <= 0) this.die('blocked');
+      return;
+    }
+
+    if (cost > 0) this.run.packages -= cost;
+    const msg = applyGateEffect(option.effect, this.run);
+    this.convoy.setCount(this.run.convoy);
+    finishGate(cost > 0 ? `Paid ${cost} 📦 · ${msg}` : msg, choseLeft ? 3 : -3, choseLeft ? '#66BB6A' : '#42A5F5');
+
+    if (option.effect.spawnEnemies) this.spawnQueue.push(option.effect.spawnEnemies);
+
+    const chosen = choseLeft ? gate.leftMesh : gate.rightMesh;
+    chosen.traverse((c) => {
+      if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
+        c.material.emissiveIntensity = 0.8;
+      }
+    });
   }
 
   private checkRouteGates(): void {
-    for (const gate of this.routeGates) {
-      if (gate.resolved) continue;
-      if (this.player.z >= gate.z - 1 && this.player.z <= gate.z + 4) {
-        const cx = this.player.x;
-        const onLeft = cx > 1.4;
-        const onRight = cx < -1.4;
-        const onCenter = !onLeft && !onRight;
-
-        if (onCenter) {
-          gate.resolved = true;
-          this.run.convoy = Math.min(this.run.maxConvoy, this.run.convoy + 3);
-          this.convoy.setCount(this.run.convoy);
-          this.particles.gateBurst(0, gate.z, '#FFD54F');
-          this.cb.onToast('Center lane — safe route +3 convoy');
-          continue;
-        }
-
-        const choseLeft = onLeft;
-        const option = choseLeft ? gate.left : gate.right;
-        const cost = option.packageCost ?? 0;
-        if (cost > 0 && this.run.packages < cost) {
-          if (!gate.resolved) {
-            gate.resolved = true;
-            this.run.integrity--;
-            this.run.integrityLost = true;
-            this.player.flashHurt();
-            this.shake.shake(0.6);
-            this.cb.onDamageFlash();
-            this.cb.onToast(`Need ${cost} packages! Gate rejected — VIP damaged!`);
-            this.particles.hitBurst(this.player.x, gate.z);
-            if (this.run.integrity <= 0) this.die('blocked');
-          }
-          continue;
-        }
-
-        if (cost > 0) this.run.packages -= cost;
-        const msg = applyGateEffect(option.effect, this.run);
-        this.convoy.setCount(this.run.convoy);
-        gate.resolved = true;
-        this.particles.gateBurst(choseLeft ? 3 : -3, gate.z, choseLeft ? '#66BB6A' : '#42A5F5');
-        this.cb.onToast(cost > 0 ? `Paid ${cost} 📦 · ${msg}` : msg);
-
-        if (option.effect.spawnEnemies) this.spawnQueue.push(option.effect.spawnEnemies);
-
-        const chosen = choseLeft ? gate.leftMesh : gate.rightMesh;
-        chosen.traverse((c) => {
-          if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
-            c.material.emissiveIntensity = 0.8;
-          }
-        });
-      }
-    }
+    /* Route gates resolved via updateRouteGateCommit + onSpaceAction */
   }
 
-  private checkBlockers(dt: number): void {
+  private checkBlockers(_dt: number): void {
     this.blockerHint = '';
+    let nearest: BlockerEntity | null = null;
+    let nearestDist = Infinity;
+
     for (const b of this.blockers) {
       if (b.cleared) continue;
 
-      if (this.player.z >= b.z - 10 && this.player.z <= b.z + 3) {
-        if (!this.activeBlocker) this.activeBlocker = b;
-
-        if (b.packageCost > 0 && b.progress === 0 && this.run.packages >= b.packageCost) {
-          this.run.packages -= b.packageCost;
-          b.progress = 0.05;
-          this.cb.onToast(`Paid ${b.packageCost} packages at gate`);
-        }
-
-        if (b.blocker === 'scan') {
-          this.blockerHint = 'Tap SCAN or press SPACE · Mail gun helps too';
-          if (this.blockerDps > 0) b.progress += this.blockerDps * 0.04 * dt;
-        } else if (b.blocker === 'stamp' || b.blocker === 'toll') {
-          this.blockerHint = b.blocker === 'stamp' ? 'Need stamp or convoy helpers' : 'Pay packages or use convoy';
-          if (this.run.stamps > 0) {
-            b.progress += dt * 0.55;
-            if (b.progress >= 1) {
-              this.run.stamps--;
-              this.clearBlocker(b);
-              this.particles.gateBurst(0, b.z, '#7E57C2');
-              this.cb.onToast('Stamp approved!');
-            }
-          } else if (this.run.convoy >= Math.max(3, Math.floor(b.required * 0.3))) {
-            b.progress += dt * 0.4;
-            if (b.progress >= 1) {
-              this.run.convoy = Math.max(0, this.run.convoy - Math.max(2, Math.floor(b.required * 0.15)));
-              this.convoy.setCount(this.run.convoy);
-              this.clearBlocker(b);
-              this.cb.onToast('Convoy vouched for you!');
-            }
-          } else if (this.run.packages > 0) {
-            b.progress += dt * 0.2;
-            if (Math.floor(b.progress * 10) > Math.floor((b.progress - dt * 0.2) * 10)) {
-              this.run.packages--;
-              this.cb.onToast('Used 1 package as toll');
-            }
-            if (b.progress >= 1) {
-              this.clearBlocker(b);
-              this.cb.onToast('Gate cleared!');
-            }
-          }
-          if (this.blockerDps > 0) b.progress += this.blockerDps * 0.03 * dt;
-        } else if (b.blocker === 'ram') {
-          this.blockerHint = 'Convoy rams the gate · Dash breaks it · Mail gun weakens it';
-          if (this.dashActive) {
-            this.clearBlocker(b);
-            this.shake.shake(0.8);
-            this.cb.onToast('Rammed through!');
-          } else {
-            const push = this.run.convoy * 0.06 + this.blockerDps * 0.12 + this.combatTurretDps * 0.05;
-            if (push > 0) {
-              b.progress += (push * dt) / Math.max(4, b.required * 0.35);
-              if (b.progress >= 1) {
-                this.run.convoy = Math.max(0, this.run.convoy - Math.max(2, Math.floor(b.required * 0.12)));
-                this.convoy.setCount(this.run.convoy);
-                this.clearBlocker(b);
-                this.shake.shake(0.5);
-                this.cb.onToast('Convoy broke the lock!');
-              }
-            }
-          }
-        }
-
-        if (b.progress >= 1 && !b.cleared) {
-          this.clearBlocker(b);
-        }
-      } else if (this.player.z > b.z + 4 && !b.cleared && b.progress < 0.5) {
+      if (this.player.z > b.z + 4 && b.progress < 0.95) {
         this.player.z = b.z - 1.2;
-        this.cb.onToast('Clear the gate first!');
+        if (!this.bounceWarned.has(b.z)) {
+          this.bounceWarned.add(b.z);
+          this.cb.onToast('Clear the gate first!');
+        }
       }
+
+      if (this.player.z >= b.z - 10 && this.player.z <= b.z + 3) {
+        const dist = Math.abs(this.player.z - b.z);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = b;
+        }
+      }
+    }
+
+    this.activeBlocker = nearest;
+
+    if (!nearest) return;
+
+    const pct = Math.floor(nearest.progress * 100);
+    if (nearest.blocker === 'scan') {
+      this.blockerHint = `SPACE / SCAN to read barcode · ${pct}%`;
+    } else if (nearest.blocker === 'stamp') {
+      this.blockerHint = `SPACE — stamp or convoy vouch · ${pct}%`;
+    } else if (nearest.blocker === 'toll') {
+      this.blockerHint = `SPACE pays toll with packages · ${pct}%`;
+    } else if (nearest.blocker === 'ram') {
+      this.blockerHint = `SPACE to ram · throw/mail helps · Dash smashes · ${pct}%`;
     }
   }
 
@@ -817,7 +979,7 @@ export class Game {
         enemy.active = true;
         this.activeEnemy = enemy;
         this.shake.shake(0.5);
-        this.cb.onToast(`${enemy.type === 'boss' ? '⚠ ALIEN COMMANDER!' : '⚠ ALIEN INTERCEPT!'} Tap to throw packages!`);
+        this.cb.onToast(`${enemy.type === 'boss' ? '⚠ ALIEN COMMANDER!' : '⚠ ALIEN INTERCEPT!'} Tap 📦 throw · SPACE mail gun`);
         this.cb.onCombat(true, enemy.type);
       }
     }

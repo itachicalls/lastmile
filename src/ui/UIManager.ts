@@ -129,10 +129,10 @@ export class UIManager {
         <h1>${lvl.name}</h1>
         <div class="briefing-box">${lvl.briefing}</div>
         <div class="controls-grid">
-          <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer freely</div>
-          <div class="control-item"><span class="tap-icon">👆</span> Tap / click to throw</div>
-          <div class="control-item"><kbd>SPACE</kbd> Scan / Ability</div>
-          <div class="control-item">⚠ Dodge obstacles!</div>
+          <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer · Hold at gates to pick lane</div>
+          <div class="control-item"><span class="tap-icon">👆</span> Tap = throw 📦 (8 dmg)</div>
+          <div class="control-item"><kbd>SPACE</kbd> / 📧 = mail gun (3 dmg)</div>
+          <div class="control-item">⚡ Ability button · Convoy fights aliens</div>
         </div>
         <button class="btn btn-primary btn-glow" id="btn-start">🚀 Start Delivery</button>
         <button class="btn btn-secondary" id="btn-back">← Back</button>
@@ -276,16 +276,18 @@ export class UIManager {
           <div class="progress-label" id="hud-dist">0m</div>
         </div>
 
+        <div class="gate-prompt hidden" id="gate-prompt"></div>
+
         <div class="blocker-hint hidden" id="blocker-hint"></div>
 
-        <div class="tap-hint" id="tap-hint">Tap = throw 📦 (best damage)</div>
+        <div class="tap-hint" id="tap-hint">Tap = throw 📦 · SPACE = mail gun</div>
 
         <div class="combat-banner hidden" id="combat-banner">
           <div class="combat-title" id="combat-title">⚠ INTERCEPT!</div>
           <div class="combat-bar-wrap">
             <div class="combat-bar-fill" id="combat-bar"></div>
           </div>
-          <div class="combat-hint">Throw 📦 for big hits · Mail gun auto-fires</div>
+          <div class="combat-hint">📦 Tap = heavy throw · SPACE = mail gun · Convoy fights for you</div>
         </div>
 
         <div class="scan-prompt hidden" id="scan-prompt">
@@ -298,7 +300,12 @@ export class UIManager {
         <div class="damage-flash hidden" id="damage-flash"></div>
 
         <div class="hud-bottom">
-          <button class="action-btn ability-btn" id="ability-btn" disabled title="Ability (SPACE)">
+          <button class="action-btn mail-btn" id="mail-btn" title="Mail gun (SPACE)">
+            <span class="action-icon">📧</span>
+            <span>MAIL</span>
+            <div class="ability-cd hidden" id="mail-cd"></div>
+          </button>
+          <button class="action-btn ability-btn" id="ability-btn" disabled title="Equipped ability">
             <span class="action-icon">⚡</span>
             <span id="ability-label">Ability</span>
             <div class="ability-cd hidden" id="ability-cd"></div>
@@ -346,7 +353,12 @@ export class UIManager {
 
     document.getElementById('scan-btn')!.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.game?.tryScan();
+      this.game?.onSpaceAction();
+    });
+
+    document.getElementById('mail-btn')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.game?.onSpaceAction();
     });
 
     btn.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -395,8 +407,33 @@ export class UIManager {
       if (d.blockerHint) {
         blockerHint.textContent = d.blockerHint;
         blockerHint.classList.remove('hidden');
+        blockerHint.classList.toggle('near-done', (d.blockerProgress ?? 0) >= 75);
       } else {
         blockerHint.classList.add('hidden');
+        blockerHint.classList.remove('near-done');
+      }
+    }
+
+    const gatePrompt = document.getElementById('gate-prompt');
+    if (gatePrompt) {
+      if (d.gatePrompt) {
+        gatePrompt.textContent = d.gatePrompt;
+        gatePrompt.classList.remove('hidden');
+      } else {
+        gatePrompt.classList.add('hidden');
+      }
+    }
+
+    const mailCd = document.getElementById('mail-cd');
+    const mailBtn = document.getElementById('mail-btn');
+    if (mailCd && mailBtn) {
+      mailBtn.classList.toggle('ready', d.mailGunReady);
+      if (d.mailGunReady) {
+        mailCd.classList.add('hidden');
+        mailCd.textContent = '';
+      } else {
+        mailCd.classList.remove('hidden');
+        mailCd.textContent = '!';
       }
     }
 

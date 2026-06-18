@@ -253,6 +253,13 @@ export class Player {
     }, 220);
   }
 
+  mailGunAnim(): void {
+    this.leftArm.rotation.x = -0.8;
+    setTimeout(() => {
+      this.leftArm.rotation.x = 0;
+    }, 120);
+  }
+
   setPackageGlow(intensity: number, district: number): void {
     const matP = this.packageMesh.material as THREE.MeshStandardMaterial;
     const matG = this.packageGlow.material as THREE.MeshStandardMaterial;
