@@ -517,7 +517,10 @@ export class Game {
 
   slide(): void {
     if (!this.running || this.dead) return;
-    if (this.player.slide()) this.shake.shake(0.05);
+    if (this.player.slide()) {
+      this.shake.shake(0.05);
+      sfx.slide();
+    }
   }
 
   /** Mail blaster — unlimited; packages are collected for delivery score only. */
@@ -786,6 +789,7 @@ export class Game {
     if (coinGain) {
       this.run.coins += coinGain;
       this.particles.collectBurst(this.player.x, this.player.z);
+      sfx.coin(coinGain);
     }
 
     const pkgCollect = tryCollectPackages(
@@ -798,6 +802,7 @@ export class Game {
       this.run.packages = Math.min(this.run.maxPackages, this.run.packages + pkgCollect.packages);
       this.particles.collectBurst(this.player.x, this.player.z);
       this.spectacle.bumpCombat(0.04);
+      sfx.pickup();
     }
     if (pkgCollect.golden) {
       this.run.coins += 18 * pkgCollect.golden;
@@ -865,6 +870,7 @@ export class Game {
       this.blurTimer = 3.5;
       this.player.setGhostMode(true);
     }
+    if (kind !== 'turbo') sfx.powerUp();
     this.emitHud(this.level.timeLimit - this.elapsed);
   }
 
@@ -1322,6 +1328,7 @@ export class Game {
     this.shake.shake(0.75);
     this.cb.onDamageFlash();
     this.particles.hitBurst(this.player.x, this.player.z);
+    sfx.hurt();
 
     if (source === 'runner') {
       this.player.knockback(this.player.x >= 0 ? 2 : -2);
@@ -1492,12 +1499,14 @@ export class Game {
     this.shake.shake(1.2);
     this.cb.onDamageFlash();
     this.particles.burst(this.player.x, 1.5, this.player.z, '#FF1744', IS_MOBILE ? 18 : 30, 6);
+    sfx.gameOver();
     setTimeout(() => this.endGame(false), 1200);
   }
 
   private endGame(won: boolean): void {
     if (!this.running) return;
     this.running = false;
+    sfx.stopMusic();
 
     let stars = 0;
     if (won) {
@@ -1632,6 +1641,8 @@ export class Game {
     this.viewportCleanup?.();
     this.viewportCleanup = null;
     this.stop();
+    sfx.stopMusic();
+    sfx.dispose();
     this.cleanup();
     this.pipeline?.dispose();
     this.pipeline = null;
