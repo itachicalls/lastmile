@@ -111,7 +111,6 @@ export type HudData = {
   powerUpLabel?: string;
   comboLabel?: string;
   invincible: boolean;
-  screenBlur?: boolean;
 };
 
 export class Game {
@@ -174,7 +173,7 @@ export class Game {
   private slowMoTimer = 0;
   private fastShotTimer = 0;
   private turboTimer = 0;
-  private blurTimer = 0;
+  private tripleFireTimer = 0;
   private timeScale = 1;
   private autoFireEnabled = false;
   private viewportCleanup: (() => void) | null = null;
@@ -346,7 +345,7 @@ export class Game {
     this.slowMoTimer = 0;
     this.fastShotTimer = 0;
     this.turboTimer = 0;
-    this.blurTimer = 0;
+    this.tripleFireTimer = 0;
     this.timeScale = 1;
     this.specialCharge = 0;
     this.specialShakesLeft = 0;
@@ -680,9 +679,9 @@ export class Game {
       this.turboTimer -= dt;
       if (this.turboTimer <= 0) this.run.speed = this.run.baseSpeed;
     }
-    if (this.blurTimer > 0) {
-      this.blurTimer -= dt;
-      if (this.blurTimer <= 0) this.player.setGhostMode(false);
+    if (this.tripleFireTimer > 0) {
+      this.tripleFireTimer -= dt;
+      if (this.tripleFireTimer <= 0) this.refreshShootSpread();
     }
     this.powerUpLabel =
       this.invincibleTimer > 0
@@ -691,8 +690,8 @@ export class Game {
           ? '💥 HIT!'
           : this.turboTimer > 0
             ? '🔥 OVERDRIVE'
-            : this.blurTimer > 0
-              ? '👻 GHOSTED'
+            : this.tripleFireTimer > 0
+              ? '🔫 TRIPLE FIRE'
               : this.fastShotTimer > 0
           ? '⚡ FAST'
           : this.slowMoTimer > 0
@@ -879,9 +878,9 @@ export class Game {
       this.convoy.reactTurbo();
       sfx.turbo();
       sfx.honk();
-    } else if (kind === 'blur') {
-      this.blurTimer = 3.5;
-      this.player.setGhostMode(true);
+    } else if (kind === 'triplefire') {
+      this.tripleFireTimer = 8;
+      this.shootSpread = true;
     }
     if (kind !== 'turbo') sfx.powerUp();
     this.emitHud(this.level.timeLimit - this.elapsed);
@@ -915,7 +914,6 @@ export class Game {
               ? `🎁 ${Game.gearTrialName(this.gearTrialTurret)}`
               : this.powerUpLabel || undefined,
       invincible: this.invincibleTimer > 0,
-      screenBlur: this.blurTimer > 0,
     });
   }
 
@@ -1137,8 +1135,15 @@ export class Game {
     this.cb.onToast(`🎁 Trial: ${Game.gearTrialName(trial)}!`);
   }
 
+  private refreshShootSpread(): void {
+    this.shootSpread =
+      this.baseShootSpread ||
+      this.tripleFireTimer > 0 ||
+      (this.gearTrialTurret === 'spread-mail' && this.gearTrialTimer > 0);
+  }
+
   private endGearTrial(): void {
-    this.shootSpread = this.baseShootSpread;
+    this.refreshShootSpread();
     this.shootPierce = this.baseShootPierce;
     this.shootHoming = this.baseShootHoming;
     const turrets = this.save.equippedTurrets;

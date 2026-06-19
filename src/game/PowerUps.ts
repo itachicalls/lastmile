@@ -8,7 +8,7 @@ export type PowerUpKind =
   | 'invincible'
   | 'health'
   | 'turbo'
-  | 'blur';
+  | 'triplefire';
 
 export type PowerUpEntity = {
   mesh: THREE.Group;
@@ -35,7 +35,7 @@ const POWER_THEME: Record<PowerUpKind, OrbTheme> = {
   invincible: { core: '#E1F5FE', mid: '#29B6F6', glow: '#00B0FF', particle: '#FFFFFF', shell: '#0288D1', bad: false },
   health: { core: '#A5D6A7', mid: '#43A047', glow: '#00E676', particle: '#C8E6C9', shell: '#2E7D32', bad: false },
   turbo: { core: '#FF8A65', mid: '#FF3D00', glow: '#FF1744', particle: '#FFAB91', shell: '#D50000', bad: true },
-  blur: { core: '#CE93D8', mid: '#7B1FA2', glow: '#E040FB', particle: '#4A148C', shell: '#311B92', bad: true },
+  triplefire: { core: '#FFCC80', mid: '#FF6D00', glow: '#FF9100', particle: '#FFE0B2', shell: '#E65100', bad: false },
 };
 
 const SEG = IS_MOBILE ? 10 : 14;
@@ -153,6 +153,33 @@ function addKindAccent(group: THREE.Group, kind: PowerUpKind, theme: OrbTheme): 
       leaf.rotation.y = a;
     }
     addMesh(accent, new THREE.SphereGeometry(0.14, 8, 8), glowMat('#FFFFFF', 0.8), 0, 0.02, 0.08, false);
+  } else if (kind === 'triplefire') {
+    for (const [ox, oz, rz] of [
+      [-0.22, 0.12, 0.35],
+      [0, 0, 0],
+      [0.22, 0.12, -0.35],
+    ] as const) {
+      const barrel = addMesh(
+        accent,
+        new THREE.CylinderGeometry(0.04, 0.05, 0.26, 5),
+        glowMat(theme.glow, 1.05),
+        ox,
+        0.02,
+        oz,
+        false
+      );
+      barrel.rotation.x = Math.PI / 2;
+      barrel.rotation.z = rz;
+      addMesh(
+        accent,
+        new THREE.ConeGeometry(0.06, 0.14, 4),
+        glowMat('#FFFFFF', 1.2),
+        ox + Math.sin(rz) * 0.14,
+        0.06,
+        oz + Math.cos(rz) * 0.14,
+        false
+      ).rotation.set(Math.PI / 2, 0, rz);
+    }
   } else if (kind === 'turbo') {
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
@@ -333,8 +360,8 @@ export function randomPowerUpKind(): PowerUpKind {
   const roll = Math.random();
   if (roll < 0.08) return 'health';
   if (roll < 0.15) return 'turbo';
-  if (roll < 0.22) return 'blur';
-  if (roll < 0.28) return 'slowmo';
+  if (roll < 0.22) return 'slowmo';
+  if (roll < 0.3) return 'triplefire';
   if (roll < 0.64) return 'fastshot';
   return 'invincible';
 }
@@ -352,7 +379,7 @@ export const POWER_LABELS: Record<PowerUpKind, string> = {
   invincible: 'Invincible!',
   health: '❤ +1 Health!',
   turbo: '⚠ Overdrive — too fast!',
-  blur: '⚠ Ghosted — hard to see!',
+  triplefire: '🔫 Triple Fire!',
 };
 
 export function isBadPowerUp(kind: PowerUpKind): boolean {

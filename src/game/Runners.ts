@@ -236,9 +236,12 @@ export function updateRunners(
           c.userData.baseEmissiveIntensity = c.material.emissiveIntensity;
         }
         const base = c.userData.baseEmissiveIntensity as number;
-        const rim = IS_MOBILE ? 0.24 : 0.18;
-        c.material.emissive.set('#FFF3E0');
-        c.material.emissiveIntensity = base + rim + night * 0.26;
+        if (night > 0.08 && !c.material.transparent) {
+          c.material.emissive.set('#FFF3E0');
+          c.material.emissiveIntensity = base + night * 0.18;
+        } else {
+          c.material.emissiveIntensity = base;
+        }
       });
     }
   }

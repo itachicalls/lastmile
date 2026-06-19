@@ -1047,7 +1047,6 @@ export class World {
     }
 
     const edgeX = [Math.floor(size * 0.04), Math.floor(size * 0.92)];
-    const centerX = size / 2;
     const laneXs = [size * 0.2, size * 0.4, size * 0.6, size * 0.8];
 
     const drawGlowLine = (
@@ -1073,48 +1072,22 @@ export class World {
       if (dashed) target.setLineDash([]);
     };
 
-    for (const lx of edgeX) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-      ctx.lineWidth = Math.max(3, size / 64);
-      ctx.beginPath();
-      ctx.moveTo(lx, 0);
-      ctx.lineTo(lx, size);
-      ctx.stroke();
-      drawGlowLine(em, lx, accent.edge, Math.max(3, size / 64), 0.95);
-      drawGlowLine(glow, lx, '#ffffff', Math.max(5, size / 42), 0.35);
-    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+    ctx.lineWidth = Math.max(3, size / 64);
+    ctx.beginPath();
+    ctx.moveTo(edgeX[0], 0);
+    ctx.lineTo(edgeX[0], size);
+    ctx.stroke();
+    drawGlowLine(em, edgeX[0], accent.edge, Math.max(3, size / 64), 0.95);
+    drawGlowLine(glow, edgeX[0], '#ffffff', Math.max(5, size / 42), 0.35);
+    ctx.beginPath();
+    ctx.moveTo(edgeX[1], 0);
+    ctx.lineTo(edgeX[1], size);
+    ctx.stroke();
+    drawGlowLine(em, edgeX[1], accent.edge, Math.max(3, size / 64), 0.95);
+    drawGlowLine(glow, edgeX[1], '#ffffff', Math.max(5, size / 42), 0.35);
 
-    ctx.strokeStyle = '#FFEB3B';
-    ctx.lineWidth = Math.max(5, size / 42);
-    ctx.lineCap = 'round';
-    ctx.setLineDash([size * 0.048, size * 0.026]);
-    for (const ox of [-size * 0.014, size * 0.014]) {
-      ctx.beginPath();
-      ctx.moveTo(centerX + ox, 0);
-      ctx.lineTo(centerX + ox, size);
-      ctx.stroke();
-      drawGlowLine(em, centerX + ox, '#FFD54F', Math.max(5, size / 42), 1.1, [size * 0.048, size * 0.026]);
-      drawGlowLine(glow, centerX + ox, accent.primary, Math.max(7, size / 32), 0.68, [size * 0.048, size * 0.026]);
-    }
-    ctx.setLineDash([]);
-
-    const centerRibbon = glow.createLinearGradient(centerX - size * 0.08, 0, centerX + size * 0.08, 0);
-    centerRibbon.addColorStop(0, 'rgba(0,0,0,0)');
-    centerRibbon.addColorStop(0.35, 'rgba(255,220,120,0.12)');
-    centerRibbon.addColorStop(0.5, 'rgba(255,240,180,0.28)');
-    centerRibbon.addColorStop(0.65, 'rgba(255,220,120,0.12)');
-    centerRibbon.addColorStop(1, 'rgba(0,0,0,0)');
-    glow.fillStyle = centerRibbon;
-    glow.fillRect(centerX - size * 0.1, 0, size * 0.2, size);
-
-    const emRibbon = em.createLinearGradient(centerX - size * 0.06, 0, centerX + size * 0.06, 0);
-    emRibbon.addColorStop(0, 'rgba(0,0,0,0)');
-    emRibbon.addColorStop(0.5, 'rgba(255,213,79,0.35)');
-    emRibbon.addColorStop(1, 'rgba(0,0,0,0)');
-    em.fillStyle = emRibbon;
-    em.fillRect(centerX - size * 0.08, 0, size * 0.16, size);
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.48)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.38)';
     ctx.lineWidth = Math.max(2, size / 88);
     ctx.setLineDash([size * 0.035, size * 0.038]);
     for (const lx of laneXs) {
@@ -1122,42 +1095,28 @@ export class World {
       ctx.moveTo(lx, 0);
       ctx.lineTo(lx, size);
       ctx.stroke();
-      drawGlowLine(em, lx, 'rgba(255,255,255,0.82)', Math.max(2, size / 88), 0.88, [size * 0.035, size * 0.038]);
-      drawGlowLine(glow, lx, accent.edge, Math.max(3, size / 72), 0.42, [size * 0.035, size * 0.038]);
+      drawGlowLine(em, lx, 'rgba(255,255,255,0.55)', Math.max(2, size / 88), 0.55, [size * 0.035, size * 0.038]);
+      drawGlowLine(glow, lx, accent.edge, Math.max(3, size / 72), 0.22, [size * 0.035, size * 0.038]);
     }
     ctx.setLineDash([]);
 
     for (let band = 0; band < 4; band++) {
       const by = band * (size / 4) + size / 16;
-      ctx.fillStyle = 'rgba(255,255,255,0.88)';
-      for (let s = 0; s < 6; s++) {
-        const sx = size * 0.38 + s * (size * 0.04);
-        ctx.fillRect(sx, by, size * 0.028, size * 0.07);
-        em.fillStyle = 'rgba(255,255,255,0.72)';
-        em.fillRect(sx - 1, by - 1, size * 0.03 + 2, size * 0.072 + 2);
-        glow.fillStyle = 'rgba(255,255,255,0.4)';
-        glow.fillRect(sx - 2, by - 2, size * 0.034 + 4, size * 0.076 + 4);
-      }
-    }
-
-    for (let row = 0; row < 4; row++) {
-      const cy = row * (size / 4) + size / 8;
-      for (let i = 0; i < 3; i++) {
-        const ax = centerX + (i - 1) * size * 0.055;
-        em.fillStyle = 'rgba(255,235,120,0.55)';
-        em.beginPath();
-        em.moveTo(ax, cy + size * 0.04);
-        em.lineTo(ax - size * 0.022, cy);
-        em.lineTo(ax + size * 0.022, cy);
-        em.closePath();
-        em.fill();
-        glow.fillStyle = 'rgba(255,220,100,0.28)';
-        glow.beginPath();
-        glow.moveTo(ax, cy + size * 0.05);
-        glow.lineTo(ax - size * 0.028, cy - size * 0.01);
-        glow.lineTo(ax + size * 0.028, cy - size * 0.01);
-        glow.closePath();
-        glow.fill();
+      for (const edge of edgeX) {
+        const inward = edge < size / 2 ? 1 : -1;
+        const baseX = edge + inward * Math.max(8, size / 28);
+        ctx.fillStyle = 'rgba(255,255,255,0.72)';
+        for (let s = 0; s < 4; s++) {
+          const sy = by + s * (size * 0.055);
+          const w = size * 0.022;
+          const h = size * 0.055;
+          const x = inward > 0 ? baseX : baseX - w;
+          ctx.fillRect(x, sy, w, h);
+          em.fillStyle = 'rgba(255,255,255,0.5)';
+          em.fillRect(x - 1, sy - 1, w + 2, h + 2);
+          glow.fillStyle = 'rgba(255,255,255,0.22)';
+          glow.fillRect(x - 2, sy - 2, w + 4, h + 4);
+        }
       }
     }
 
@@ -1921,7 +1880,7 @@ export class World {
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
-      const dayLane = (IS_MOBILE ? 0.24 : 0.3) * (1 - lightNight * 0.35);
+      const dayLane = (IS_MOBILE ? 0.14 : 0.18) * (1 - lightNight * 0.35);
       const nightGlow = (IS_MOBILE ? 0.16 : 0.24) + nightFx * (IS_MOBILE ? 0.42 : 0.58);
       const combat = this.roadFx.combatIntensity ?? 0;
       const shoot = this.roadFx.shootPulse ?? 0;

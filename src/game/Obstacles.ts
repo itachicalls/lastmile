@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { disposeObject3D } from './ModelUtils';
-import { IS_MOBILE, isNearZ } from './platform';
+import { isNearZ } from './platform';
 import { HAZARD_META } from '../data/hazards';
 import { buildHazardMesh } from './HazardVisuals';
 import type { ObstacleKind } from '../types';
@@ -30,27 +30,15 @@ export function obstacleClearHeight(kind: ObstacleKind): number {
 }
 
 function boostHazardMaterial(m: THREE.MeshStandardMaterial, night: number): void {
-  if (m.userData.baseColor === undefined && m.color) {
-    m.userData.baseColor = m.color.getHex();
-  }
-  if (IS_MOBILE && m.userData.baseColor !== undefined) {
-    const base = new THREE.Color(m.userData.baseColor as number);
-    base.lerp(new THREE.Color('#FFCC80'), 0.22);
-    m.color.copy(base);
-  }
   if (m.userData.baseEmissiveIntensity === undefined) {
     m.userData.baseEmissiveIntensity = m.emissiveIntensity;
   }
   const base = m.userData.baseEmissiveIntensity as number;
-  const lift = IS_MOBILE ? 0.18 + night * 0.28 : 0.14 + night * 0.22;
-  if (lift > 0.02 && !m.transparent) {
-    m.emissive.set(IS_MOBILE ? '#FFE8CC' : '#FFF3E0');
-    m.emissiveIntensity = base + lift;
-    if (m.userData.baseRoughness === undefined) m.userData.baseRoughness = m.roughness;
-    m.roughness = Math.max(0.42, (m.userData.baseRoughness as number) - 0.12);
+  if (night > 0.08 && !m.transparent) {
+    m.emissive.set('#FFF3E0');
+    m.emissiveIntensity = base + night * 0.18;
   } else {
     m.emissiveIntensity = base;
-    if (m.userData.baseRoughness !== undefined) m.roughness = m.userData.baseRoughness as number;
   }
 }
 
@@ -72,7 +60,7 @@ export function updateObstacles(
         c.rotation.z = time * 0.25 + o.x;
         const m = c.material as THREE.MeshBasicMaterial;
         if (m.opacity !== undefined) {
-          const base = (IS_MOBILE ? 0.48 : 0.32) + Math.sin(time * 2.5 + o.z) * 0.1;
+          const base = 0.32 + Math.sin(time * 2.5 + o.z) * 0.1;
           m.opacity = base;
         }
       }
@@ -91,7 +79,7 @@ export function updateObstacles(
             (c.userData.baseEmissiveIntensity as number) +
             0.22 +
             Math.sin(time * 4 + blinkPhase) * 0.12 +
-            night * (IS_MOBILE ? 0.45 : 0.35);
+            night * 0.35;
         }
       }
       if (c.material instanceof THREE.MeshStandardMaterial && !c.userData.isBlink && !c.userData.isHazardPad) {

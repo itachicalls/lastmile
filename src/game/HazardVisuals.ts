@@ -139,7 +139,7 @@ function groundBase(parent: THREE.Object3D, radius: number): void {
     new THREE.MeshBasicMaterial({
       color: '#FF9800',
       transparent: true,
-      opacity: IS_MOBILE ? 0.58 : 0.42,
+      opacity: 0.42,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -157,7 +157,7 @@ function groundBase(parent: THREE.Object3D, radius: number): void {
     new THREE.MeshBasicMaterial({
       color: '#FFE082',
       transparent: true,
-      opacity: IS_MOBILE ? 0.38 : 0.22,
+      opacity: 0.22,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -174,7 +174,7 @@ function groundBase(parent: THREE.Object3D, radius: number): void {
     const post = addMesh(
       parent,
       new THREE.CylinderGeometry(0.025, 0.035, 0.28, 4),
-      mat('#FF9800', { emissive: '#FF9800', emissiveIntensity: IS_MOBILE ? 0.55 : 0.35, roughness: 0.6 }),
+      mat('#FF9800', { emissive: '#FF9800', emissiveIntensity: 0.35, roughness: 0.6 }),
       Math.cos(a) * radius * 0.82,
       0.14,
       Math.sin(a) * radius * 0.82

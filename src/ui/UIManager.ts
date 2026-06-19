@@ -410,7 +410,6 @@ export class UIManager {
         </div>
 
         <div class="fork-hint hidden" id="fork-hint"></div>
-        <div class="screen-blur hidden" id="screen-blur"></div>
 
         <div class="tap-hint" id="tap-hint">${IS_MOBILE ? 'Jump · Mail · Slide — tap screen also shoots' : 'Jump · Slide · Shoot · Swerve at forks!'}</div>
 
@@ -610,10 +609,6 @@ export class UIManager {
     if (d.invincible !== this.hudCache.invincible) {
       if (d.invincible) heartsEl?.classList.add('invincible-glow');
       else document.getElementById('hud-hearts')?.classList.remove('invincible-glow');
-    }
-
-    if (d.screenBlur !== this.hudCache.screenBlur) {
-      document.getElementById('screen-blur')?.classList.toggle('hidden', !d.screenBlur);
     }
 
     const forkHint = document.getElementById('fork-hint');
