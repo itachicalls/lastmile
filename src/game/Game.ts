@@ -59,6 +59,7 @@ import {
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
 import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING } from './platform';
+import { getViewportMetrics, onViewportChange } from './viewport';
 import { getCharacter } from '../data/characters';
 import { getLevel } from '../data/levels';
 import { getDistrict } from '../data/districts';
@@ -156,6 +157,8 @@ export class Game {
   private turboTimer = 0;
   private blurTimer = 0;
   private timeScale = 1;
+  private autoFireEnabled = false;
+  private viewportCleanup: (() => void) | null = null;
   private forkHint = '';
   private powerUpLabel = '';
   private deathReason: DeathReason = 'stolen';
@@ -210,10 +213,15 @@ export class Game {
     this.bindKeyboard();
     this.bindPointer();
     window.addEventListener('resize', () => this.resize());
-    if (window.visualViewport && !IS_MOBILE) {
+    this.viewportCleanup = onViewportChange(() => this.resize());
+    if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => this.resize());
     }
     this.resize();
+  }
+
+  setAutoFire(enabled: boolean): void {
+    this.autoFireEnabled = enabled;
   }
 
   bindTouchControls(hudEl: HTMLElement): void {
@@ -248,7 +256,7 @@ export class Game {
     const onTap = (e: PointerEvent) => {
       if (!this.running || this.dead) return;
       const t = e.target as HTMLElement;
-      if (t.closest('#steer-left, #steer-right, #ability-btn, #special-btn, #jump-btn, #shoot-btn, .hud-panel, .btn')) return;
+      if (t.closest('#steer-left, #steer-right, #ability-btn, #special-btn, #jump-btn, #shoot-btn, #autofire-toggle, .hud-panel, .btn')) return;
       this.shoot();
     };
     hudEl.addEventListener('pointerdown', onTap);
@@ -292,6 +300,7 @@ export class Game {
     this.specialShakeTimer = 0;
     this.touchSteerLeft = false;
     this.touchSteerRight = false;
+    this.autoFireEnabled = IS_MOBILE && this.save.mobileAutoFire;
 
     this.applyUpgrades();
     const diff = level.difficulty;
@@ -542,6 +551,7 @@ export class Game {
     this.gameTime += dt;
     if (this.abilityCd > 0) this.abilityCd = Math.max(0, this.abilityCd - dt);
     if (this.shootCd > 0) this.shootCd = Math.max(0, this.shootCd - dt);
+    if (IS_MOBILE && this.autoFireEnabled && this.shootCd <= 0) this.shoot();
     if (this.smokeTimer > 0) this.smokeTimer -= dt;
     if (this.dashActive) {
       this.dashTimer -= dt;
@@ -1016,8 +1026,9 @@ export class Game {
   }
 
   resize(): void {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = this.canvas.clientWidth || getViewportMetrics().width;
+    const h = this.canvas.clientHeight || getViewportMetrics().height;
+    if (w < 1 || h < 1) return;
     this.renderer.setPixelRatio(getPixelRatio());
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
@@ -1048,6 +1059,8 @@ export class Game {
   dispose(): void {
     this.inputCleanup?.();
     this.inputCleanup = null;
+    this.viewportCleanup?.();
+    this.viewportCleanup = null;
     this.stop();
     this.cleanup();
     this.renderer.dispose();

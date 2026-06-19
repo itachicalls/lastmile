@@ -1,10 +1,13 @@
 import { SaveManager } from './save/SaveManager';
 import { UIManager } from './ui/UIManager';
 import { IS_MOBILE } from './game/platform';
+import { initViewportLock } from './game/viewport';
 
 const save = new SaveManager();
 const uiRoot = document.getElementById('ui-root')!;
 new UIManager(uiRoot, save);
+
+initViewportLock();
 
 function blockZoom(e: Event): void {
   e.preventDefault();
@@ -23,21 +26,17 @@ document.addEventListener(
   { passive: false }
 );
 
+let lastTouchEnd = 0;
+document.addEventListener(
+  'touchend',
+  (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 320) e.preventDefault();
+    lastTouchEnd = now;
+  },
+  { passive: false }
+);
+
 document.addEventListener('contextmenu', (e) => {
   if ((e.target as HTMLElement).closest('#game-canvas, .hud')) e.preventDefault();
 });
-
-if (IS_MOBILE && window.visualViewport) {
-  const resetViewportZoom = (): void => {
-    if (window.visualViewport!.scale !== 1) {
-      document.body.style.width = `${window.innerWidth}px`;
-      document.body.style.height = `${window.innerHeight}px`;
-    }
-  };
-  window.visualViewport.addEventListener('resize', resetViewportZoom);
-  window.visualViewport.addEventListener('scroll', () => window.scrollTo(0, 0));
-  window.addEventListener('orientationchange', () => {
-    window.scrollTo(0, 0);
-    setTimeout(() => window.scrollTo(0, 0), 100);
-  });
-}

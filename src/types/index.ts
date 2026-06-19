@@ -79,6 +79,8 @@ export type SaveData = {
   equippedAbility: AbilityId | null;
   totalDeliveries: number;
   selectedCharacter: MailmanId;
+  /** Mobile-only: continuous shooting when enabled */
+  mobileAutoFire: boolean;
 };
 
 export type RunState = {
@@ -115,6 +117,7 @@ export const DEFAULT_SAVE: SaveData = {
   equippedAbility: null,
   totalDeliveries: 0,
   selectedCharacter: 'johnny',
+  mobileAutoFire: true,
 };
 
 export const INITIAL_RUN: RunState = {

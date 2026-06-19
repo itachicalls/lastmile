@@ -9,6 +9,7 @@ import { CHARACTERS } from '../data/characters';
 import type { MailmanId } from '../types';
 import { menuBackdropHtml } from './menuBackdrop';
 import { mountCharacterPreview } from './CharacterPreview';
+import { IS_MOBILE } from '../game/platform';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -318,6 +319,10 @@ export class UIManager {
         <div class="hud-hearts" id="hud-hearts"></div>
         <div class="hud-ammo" id="hud-ammo">📧</div>
         <div class="hud-powerup hidden" id="hud-powerup"></div>
+        ${IS_MOBILE ? `<button type="button" class="autofire-toggle ${this.save.get().mobileAutoFire ? 'on' : 'off'}" id="autofire-toggle" aria-pressed="${this.save.get().mobileAutoFire}">
+          <span class="autofire-icon">🔫</span>
+          <span id="autofire-label">${this.save.get().mobileAutoFire ? 'AUTO ON' : 'AUTO OFF'}</span>
+        </button>` : ''}
 
         <div class="hud-panel hud-right hud-minimal">
           <div class="hud-stat-inline">🪙 <span id="hud-coins">0</span></div>
@@ -360,11 +365,11 @@ export class UIManager {
             <span id="special-label">QUAKE</span>
             <span class="special-count hidden" id="special-shakes"></span>
           </button>
-          <button class="action-btn ability-btn" id="ability-btn" disabled title="Shop ability (Q)">
+          ${this.save.get().equippedAbility ? `<button class="action-btn ability-btn" id="ability-btn" title="Shop ability (Q)">
             <span class="action-icon">⚡</span>
             <span id="ability-label">Ability</span>
             <div class="ability-cd hidden" id="ability-cd"></div>
-          </button>
+          </button>` : ''}
         </div>
       </div>
     `);
@@ -389,15 +394,30 @@ export class UIManager {
     });
 
     const ability = this.save.get().equippedAbility;
-    const btn = document.getElementById('ability-btn') as HTMLButtonElement;
+    const btn = document.getElementById('ability-btn') as HTMLButtonElement | null;
     const label = document.getElementById('ability-label');
-    if (ability && label) {
+    if (ability && btn && label) {
       const names: Record<string, string> = { 'smoke-bomb': 'Smoke', 'rally-horn': 'Rally', dash: 'Dash' };
       label.textContent = names[ability] ?? 'Ability';
       btn.disabled = false;
       btn.onclick = () => this.game?.useAbility();
-    } else if (label) {
-      label.textContent = 'None';
+      btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    }
+
+    const autofireBtn = document.getElementById('autofire-toggle');
+    if (autofireBtn) {
+      autofireBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const next = !this.save.get().mobileAutoFire;
+        this.save.setMobileAutoFire(next);
+        this.game?.setAutoFire(next);
+        autofireBtn.classList.toggle('on', next);
+        autofireBtn.classList.toggle('off', !next);
+        autofireBtn.setAttribute('aria-pressed', String(next));
+        const lbl = document.getElementById('autofire-label');
+        if (lbl) lbl.textContent = next ? 'AUTO ON' : 'AUTO OFF';
+      });
     }
 
     const hudEl = document.getElementById('hud')!;
@@ -420,8 +440,6 @@ export class UIManager {
       e.stopPropagation();
       this.game?.useSpecialQuake();
     });
-
-    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
 
     this.game.startLevel(levelId);
 

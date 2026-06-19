@@ -83,6 +83,11 @@ export class SaveManager {
     this.save();
   }
 
+  setMobileAutoFire(enabled: boolean): void {
+    this.data.mobileAutoFire = enabled;
+    this.save();
+  }
+
   recordWin(): void {
     this.data.totalDeliveries += 1;
     this.save();
