@@ -10,6 +10,8 @@ new UIManager(uiRoot, save);
 initViewportLock();
 
 function blockZoom(e: Event): void {
+  const t = e.target as HTMLElement;
+  if (t.closest('.shop-scroll, .levels-screen, .scroll-touch')) return;
   e.preventDefault();
 }
 

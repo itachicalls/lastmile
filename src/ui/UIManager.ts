@@ -146,7 +146,7 @@ export class UIManager {
     this.clear();
     const s = this.save.get();
     let inner = `
-      <div class="screen levels-screen screen-glass">
+      <div class="screen levels-screen screen-glass scroll-touch">
         <div class="screen-header">
           <h1>Select Route</h1>
           <div class="stat-pill"><span>🪙</span> ${s.coins}</div>
@@ -208,6 +208,7 @@ export class UIManager {
 
   showShop(): void {
     this.screen = 'shop';
+    setGameActive(false);
     this.setCanvasVisible(false);
     this.clear();
     const s = this.save.get();
@@ -253,12 +254,12 @@ export class UIManager {
     const inner = `
       <div class="screen shop-screen screen-glass">
         <div class="shop-topbar">
-          <button class="btn btn-secondary shop-back-btn" id="btn-back" type="button">← Menu</button>
-          <h1 class="shop-title">Mail Run Shop</h1>
+          <button class="btn btn-secondary shop-back-btn" id="btn-back" type="button">← Back</button>
+          <h1 class="shop-title">Shop</h1>
           <div class="stat-pill gold shop-coins"><span>🪙</span> ${s.coins}</div>
         </div>
-        <p class="shop-hint">Buy upgrades, then equip gear & an ability before your next run.</p>
-        <div class="shop-scroll">${gridHtml}</div>
+        <p class="shop-hint">Buy upgrades · equip up to 2 gear + 1 ability</p>
+        <div class="shop-scroll scroll-touch">${gridHtml}</div>
       </div>`;
 
     const screen = this.wrapScreen(inner);
