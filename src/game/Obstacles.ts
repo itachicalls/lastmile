@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { disposeObject3D } from './ModelUtils';
-import { IS_MOBILE, isNearZ } from './platform';
+import { isNearZ } from './platform';
 import { HAZARD_META } from '../data/hazards';
 import { buildHazardMesh } from './HazardVisuals';
 import type { ObstacleKind } from '../types';
@@ -29,7 +29,12 @@ export function obstacleClearHeight(kind: ObstacleKind): number {
   return HAZARD_META[kind].clearHeight;
 }
 
-export function updateObstacles(obstacles: ObstacleEntity[], time: number, playerZ: number): void {
+export function updateObstacles(
+  obstacles: ObstacleEntity[],
+  time: number,
+  playerZ: number,
+  night = 0
+): void {
   for (const o of obstacles) {
     if (o.hit || !isNearZ(o.z, playerZ)) continue;
 
@@ -50,16 +55,35 @@ export function updateObstacles(obstacles: ObstacleEntity[], time: number, playe
       }
       if (c.userData.isBlink) {
         const m = c.material as THREE.MeshStandardMaterial;
-        m.emissiveIntensity = 0.22 + Math.sin(time * 4 + blinkPhase) * 0.12;
+        if (m.emissiveIntensity !== undefined) {
+          if (c.userData.baseEmissiveIntensity === undefined) {
+            c.userData.baseEmissiveIntensity = m.emissiveIntensity;
+          }
+          m.emissiveIntensity =
+            (c.userData.baseEmissiveIntensity as number) +
+            0.22 +
+            Math.sin(time * 4 + blinkPhase) * 0.12 +
+            night * 0.35;
+        }
+      }
+      if (c.material instanceof THREE.MeshStandardMaterial && !c.userData.isBlink) {
+        if (c.userData.baseEmissiveIntensity === undefined) {
+          c.userData.baseEmissiveIntensity = c.material.emissiveIntensity;
+        }
+        const base = c.userData.baseEmissiveIntensity as number;
+        if (night > 0.08 && !c.material.transparent) {
+          c.material.emissive.set('#FFF3E0');
+          c.material.emissiveIntensity = base + night * 0.18;
+        } else {
+          c.material.emissiveIntensity = base;
+        }
       }
       if (c.userData.isSpin) {
         c.rotation.y = time * 2 + phase;
       }
     });
 
-    if (!IS_MOBILE) {
-      o.mesh.position.y = Math.sin(time * 2.5 + o.x * 0.5) * 0.012;
-    }
+    o.mesh.position.y = Math.sin(time * 2.5 + o.x * 0.5) * 0.012;
   }
 }
 

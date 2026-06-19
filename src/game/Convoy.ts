@@ -4,6 +4,8 @@ import { addMesh, mat, disposeObject3D } from './ModelUtils';
 export class Convoy {
   private group: THREE.Group;
   private units: THREE.Group[] = [];
+  private reactTimer = 0;
+  private reactKind: 'none' | 'honk' | 'swerve' = 'none';
   count = 0;
 
   constructor(private scene: THREE.Scene) {
@@ -22,6 +24,16 @@ export class Convoy {
       disposeObject3D(g);
     }
     this.layout();
+  }
+
+  reactQuake(): void {
+    this.reactKind = 'swerve';
+    this.reactTimer = 0.85;
+  }
+
+  reactTurbo(): void {
+    this.reactKind = 'honk';
+    this.reactTimer = 0.65;
   }
 
   private buildHelper(): THREE.Group {
@@ -52,11 +64,24 @@ export class Convoy {
   }
 
   update(playerX: number, playerZ: number, time: number): void {
+    if (this.reactTimer > 0) this.reactTimer -= 0.016;
+
     this.group.position.set(playerX, 0, playerZ);
     this.units.forEach((helper, i) => {
-      helper.rotation.y = Math.sin(time * 4 + i) * 0.12;
-      helper.position.y = Math.sin(time * 7 + i * 0.6) * 0.035;
-      helper.rotation.z = Math.sin(time * 5 + i) * 0.04;
+      let sway = Math.sin(time * 4 + i) * 0.12;
+      let bob = Math.sin(time * 7 + i * 0.6) * 0.035;
+      if (this.reactTimer > 0) {
+        if (this.reactKind === 'honk') {
+          sway += Math.sin(time * 22 + i) * 0.18;
+          bob += 0.04;
+        } else if (this.reactKind === 'swerve') {
+          helper.position.x += Math.sin(time * 16 + i * 2) * 0.12;
+          helper.rotation.z = Math.sin(time * 12 + i) * 0.12;
+        }
+      }
+      helper.rotation.y = sway;
+      helper.position.y = bob;
+      if (this.reactKind !== 'swerve') helper.rotation.z = Math.sin(time * 5 + i) * 0.04;
     });
   }
 

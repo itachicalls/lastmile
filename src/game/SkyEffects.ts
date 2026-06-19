@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
 import { IS_MOBILE } from './platform';
+import type { SpectacleKind } from './SpectacleDirector';
 
 type SkyUfo = {
   group: THREE.Group;
@@ -19,10 +20,22 @@ type ShootingStar = {
   life: number;
 };
 
+type WarFlash = {
+  mesh: THREE.Mesh;
+  life: number;
+};
+
+type SkyJet = {
+  group: THREE.Group;
+  life: number;
+};
+
 export class SkyEffects {
   private root = new THREE.Group();
   private ufos: SkyUfo[] = [];
   private stars: ShootingStar[] = [];
+  private warFlashes: WarFlash[] = [];
+  private jets: SkyJet[] = [];
   private starTimer = 0;
   private night = 0;
 
@@ -141,6 +154,67 @@ export class SkyEffects {
     }
   }
 
+  playSpectacle(kind: SpectacleKind, playerZ: number): void {
+    if (kind === 'dogfight') {
+      this.spawnJet(playerZ + 35 + Math.random() * 20, -1);
+      this.spawnJet(playerZ + 38 + Math.random() * 20, 1);
+      return;
+    }
+    if (kind === 'meteor-streak') {
+      for (let i = 0; i < (IS_MOBILE ? 2 : 4); i++) {
+        this.spawnShootingStar(playerZ, Math.random);
+      }
+      return;
+    }
+    const count = kind === 'distant-barrage' ? (IS_MOBILE ? 2 : 4) : IS_MOBILE ? 1 : 2;
+    for (let i = 0; i < count; i++) {
+      this.spawnWarFlash(playerZ + 25 + Math.random() * 45, kind);
+    }
+  }
+
+  private spawnWarFlash(z: number, kind: SpectacleKind): void {
+    const x = (Math.random() - 0.5) * 50;
+    const color =
+      kind === 'orbital-flash' ? '#FF5252' : kind === 'energy-surge' ? '#00E5FF' : '#FFAB40';
+    const flash = addMesh(
+      this.root,
+      new THREE.PlaneGeometry(3.5 + Math.random() * 4, 2 + Math.random() * 2),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+      x,
+      6 + Math.random() * 8,
+      z,
+      false
+    );
+    flash.rotation.y = (Math.random() - 0.5) * 0.6;
+    this.warFlashes.push({ mesh: flash, life: 0.35 + Math.random() * 0.35 });
+  }
+
+  private spawnJet(z: number, side: number): void {
+    const g = new THREE.Group();
+    g.position.set(side * 22, 16 + Math.random() * 6, z);
+    addMesh(g, new THREE.ConeGeometry(0.35, 1.2, 5), mat('#546E7A', { metalness: 0.6 }), 0, 0, 0);
+    addMesh(
+      g,
+      new THREE.PlaneGeometry(0.8, 0.25),
+      new THREE.MeshBasicMaterial({ color: '#FF5252', transparent: true, opacity: 0.7 }),
+      -0.5,
+      0,
+      0,
+      false
+    );
+    g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+    g.rotation.z = side * 0.15;
+    this.root.add(g);
+    this.jets.push({ group: g, life: 3.5 });
+  }
+
   update(time: number, dt: number, playerZ: number): void {
     this.root.position.set(0, 0, 0);
 
@@ -187,6 +261,31 @@ export class SkyEffects {
         this.stars.splice(i, 1);
       }
     }
+
+    for (let i = this.warFlashes.length - 1; i >= 0; i--) {
+      const f = this.warFlashes[i];
+      f.life -= dt;
+      const m = f.mesh.material as THREE.MeshBasicMaterial;
+      m.opacity = Math.max(0, f.life * 2.2);
+      f.mesh.scale.setScalar(1 + (0.35 - f.life) * 2);
+      if (f.life <= 0) {
+        this.root.remove(f.mesh);
+        f.mesh.geometry.dispose();
+        m.dispose();
+        this.warFlashes.splice(i, 1);
+      }
+    }
+
+    for (let i = this.jets.length - 1; i >= 0; i--) {
+      const j = this.jets[i];
+      j.life -= dt;
+      j.group.position.x += dt * 14 * Math.sign(j.group.position.x || 1);
+      j.group.position.z -= dt * 6;
+      if (j.life <= 0 || Math.abs(j.group.position.z - playerZ) > 100) {
+        disposeObject3D(j.group);
+        this.jets.splice(i, 1);
+      }
+    }
   }
 
   clear(): void {
@@ -196,6 +295,14 @@ export class SkyEffects {
       (s.mesh.material as THREE.Material).dispose();
     }
     this.stars = [];
+    for (const f of this.warFlashes) {
+      this.root.remove(f.mesh);
+      f.mesh.geometry.dispose();
+      (f.mesh.material as THREE.Material).dispose();
+    }
+    this.warFlashes = [];
+    for (const j of this.jets) disposeObject3D(j.group);
+    this.jets = [];
     for (const u of this.ufos) disposeObject3D(u.group);
     this.ufos = [];
     while (this.root.children.length) this.root.remove(this.root.children[0]);

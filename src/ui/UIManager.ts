@@ -4,7 +4,7 @@ import { LEVELS, districtsWithLevels } from '../data/levels';
 import { DISTRICTS, getDistrict } from '../data/districts';
 import { SHOP_ITEMS, SHOP_SECTIONS, itemCost } from '../data/shop';
 import { nextLevelId } from '../data/levels';
-import type { GameResult } from '../types';
+import type { GameResult, LevelDef } from '../types';
 import { CHARACTERS } from '../data/characters';
 import type { MailmanId } from '../types';
 import { menuBackdropHtml } from './menuBackdrop';
@@ -18,7 +18,35 @@ const DISTRICT_MOOD: Record<number, string> = {
   2: 'district-downtown',
   3: 'district-desert',
   4: 'district-jungle',
+  5: 'district-industrial',
+  6: 'district-neon',
+  7: 'district-blackzone',
 };
+
+const DISTRICT_META: Record<number, { icon: string; tagline: string }> = {
+  1: { icon: '🏡', tagline: 'Suburban first contacts — aliens in the hedges' },
+  2: { icon: '🏙️', tagline: 'Downtown chaos — deliver through the warzone' },
+  3: { icon: '🏜️', tagline: 'Desert heat — sand, scorpions, and saucers' },
+  4: { icon: '🌴', tagline: 'Jungle overrun — vines, spores, and stalkers' },
+  5: { icon: '🏭', tagline: 'Industrial rain — acid leaks and blackouts' },
+  6: { icon: '🌃', tagline: 'Neon night — synthwave slaughter highway' },
+  7: { icon: '☠️', tagline: 'The Black Zone — no mercy, no overtime' },
+};
+
+function levelDropoffZ(lvl: LevelDef): number {
+  for (let i = lvl.segments.length - 1; i >= 0; i--) {
+    const seg = lvl.segments[i];
+    if (seg.kind === 'dropoff') return seg.z;
+  }
+  return 750;
+}
+
+function hazardChips(levelId: string): string {
+  return hazardPoolLabels(levelId)
+    .split(' · ')
+    .map((h) => `<span class="hazard-chip">${h}</span>`)
+    .join('');
+}
 
 type Screen = 'menu' | 'levels' | 'shop' | 'briefing' | 'game' | 'results';
 
@@ -148,34 +176,56 @@ export class UIManager {
     this.clear();
     const s = this.save.get();
     let inner = `
-      <div class="screen levels-screen screen-glass scroll-touch">
-        <div class="screen-header">
-          <h1>Select Route</h1>
-          <div class="stat-pill"><span>🪙</span> ${s.coins}</div>
-        </div>`;
+      <div class="screen route-screen scroll-touch">
+        <header class="route-header">
+          <button type="button" class="btn btn-secondary route-back" id="btn-back">← Back</button>
+          <div class="route-title-block">
+            <span class="route-eyebrow">MAIL RUN · INVASION ROUTES</span>
+            <h1>Select Route</h1>
+          </div>
+          <div class="stat-pill route-coins"><span>🪙</span> ${s.coins.toLocaleString()}</div>
+        </header>
+        <div class="route-scroll">`;
 
     for (const districtId of districtsWithLevels()) {
       const district = getDistrict(districtId);
       const mood = DISTRICT_MOOD[districtId] ?? 'district-sunny';
-      inner += `<div class="district-header ${mood}">${district.name}</div><div class="level-grid">`;
-      for (const lvl of LEVELS.filter((l) => l.district === districtId)) {
+      const meta = DISTRICT_META[districtId] ?? { icon: '📍', tagline: district.name };
+      const districtLevels = LEVELS.filter((l) => l.district === districtId);
+      const cleared = districtLevels.filter((l) => (s.levelStars[l.id] ?? 0) > 0).length;
+
+      inner += `
+        <section class="route-district ${mood}">
+          <div class="route-district-head">
+            <span class="route-district-icon" aria-hidden="true">${meta.icon}</span>
+            <div class="route-district-copy">
+              <h2>${district.name}</h2>
+              <p>${meta.tagline}</p>
+            </div>
+            <span class="route-district-progress">${cleared}/${districtLevels.length}</span>
+          </div>
+          <div class="route-level-grid">`;
+
+      for (const lvl of districtLevels) {
         const locked = !s.unlockedLevels.includes(lvl.id);
         const stars = s.levelStars[lvl.id] ?? 0;
+        const isBoss = lvl.name.toLowerCase().includes('boss');
         inner += `
-          <div class="level-card ${locked ? 'locked' : ''} ${mood}" data-id="${lvl.id}">
-            <div class="level-num">${lvl.id}</div>
-            <strong>${lvl.name}</strong>
-            <div class="stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
-          </div>`;
+            <button type="button" class="route-level-card ${locked ? 'locked' : ''} ${stars >= 3 ? 'perfect' : ''} ${isBoss ? 'boss' : ''}" data-id="${lvl.id}" ${locked ? 'disabled' : ''}>
+              <span class="rlc-id">${lvl.id}</span>
+              <span class="rlc-name">${lvl.name}</span>
+              <span class="rlc-stars" aria-label="${stars} of 3 stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span>
+              ${isBoss ? '<span class="rlc-boss-tag">BOSS</span>' : ''}
+            </button>`;
       }
-      inner += '</div>';
+      inner += '</div></section>';
     }
 
-    inner += `<button class="btn btn-secondary" id="btn-back">← Back</button></div>`;
+    inner += '</div></div>';
     const screen = this.wrapScreen(inner);
     this.root.appendChild(screen);
 
-    screen.querySelectorAll('.level-card:not(.locked)').forEach((card) => {
+    screen.querySelectorAll('.route-level-card:not(.locked)').forEach((card) => {
       card.addEventListener('click', () => this.showBriefing((card as HTMLElement).dataset.id!));
     });
     screen.querySelector('#btn-back')!.addEventListener('click', () => this.showMenu());
@@ -184,24 +234,43 @@ export class UIManager {
   showBriefing(levelId: string): void {
     const lvl = LEVELS.find((l) => l.id === levelId)!;
     const district = getDistrict(lvl.district);
+    const mood = DISTRICT_MOOD[lvl.district] ?? 'district-sunny';
+    const meta = DISTRICT_META[lvl.district] ?? { icon: '📍', tagline: district.name };
+    const dropoff = levelDropoffZ(lvl);
+    const isBoss = lvl.name.toLowerCase().includes('boss');
     this.screen = 'briefing';
     this.setCanvasVisible(false);
     this.clear();
     const screen = this.wrapScreen(`
-      <div class="screen briefing-screen screen-glass">
-        <div class="briefing-badge">${district.name}</div>
-        <h1>${lvl.name}</h1>
-        <div class="briefing-hazard">⚠ Hazards: ${hazardPoolLabels(levelId)}</div>
-        <div class="briefing-box">${lvl.briefing}</div>
-        <div class="controls-grid">
-          <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer lanes</div>
-          <div class="control-item"><span class="tap-icon">👆</span> Click / tap = shoot (📧 mail · 📦 if stocked)</div>
-          <div class="control-item"><kbd>SPACE</kbd> Jump · <kbd>S</kbd> Slide · Green/Red/Yellow aliens run at you</div>
-          <div class="control-item">Power-ups: Slow-Mo · Fast Shot · Shield</div>
-          <div class="control-item">⚡ Ability · Convoy auto-fights aliens</div>
+      <div class="screen mission-screen ${mood}">
+        <div class="mission-card">
+          <div class="mission-top">
+            <span class="mission-district">${meta.icon} ${district.name}</span>
+            <span class="mission-id">${lvl.id}${isBoss ? ' · BOSS' : ''}</span>
+          </div>
+          <h1 class="mission-title">${lvl.name}</h1>
+          <div class="mission-stats">
+            <span class="mission-stat"><strong>${dropoff}m</strong> route</span>
+            <span class="mission-stat"><strong>${lvl.timeLimit}s</strong> limit</span>
+            <span class="mission-stat"><strong>📦</strong> collect & deliver</span>
+          </div>
+          <p class="mission-brief">${lvl.briefing}</p>
+          <div class="mission-hazards">
+            <span class="mission-hazards-label">Route hazards</span>
+            <div class="hazard-chips">${hazardChips(levelId)}</div>
+          </div>
+          <div class="mission-controls">
+            <div class="mission-control"><kbd>A</kbd><kbd>D</kbd><span>Steer lanes</span></div>
+            <div class="mission-control"><span class="ctrl-icon">👆</span><span>Click / tap = mail blaster (unlimited)</span></div>
+            <div class="mission-control"><kbd>SPACE</kbd><span>Jump</span><kbd>S</kbd><span>Slide</span></div>
+            <div class="mission-control"><span class="ctrl-icon">📦</span><span>Grab packages for delivery score — shooting never spends them</span></div>
+            <div class="mission-control"><span class="ctrl-icon">⚡</span><span>Ability · Convoy fights aliens · Day/night cycle mid-run</span></div>
+          </div>
+          <div class="mission-actions">
+            <button type="button" class="btn btn-primary btn-glow mission-start" id="btn-start">🚀 Start Delivery</button>
+            <button type="button" class="btn btn-secondary" id="btn-back">← Routes</button>
+          </div>
         </div>
-        <button class="btn btn-primary btn-glow" id="btn-start">🚀 Start Delivery</button>
-        <button class="btn btn-secondary" id="btn-back">← Back</button>
       </div>
     `);
     this.root.appendChild(screen);
@@ -325,7 +394,7 @@ export class UIManager {
         </div>
 
         <div class="hud-hearts" id="hud-hearts"></div>
-        <div class="hud-ammo" id="hud-ammo">📧</div>
+        <div class="hud-ammo" id="hud-ammo">📦 0</div>
         <div class="hud-powerup hidden" id="hud-powerup"></div>
         ${IS_MOBILE ? `<button type="button" class="autofire-toggle ${this.save.get().mobileAutoFire ? 'on' : 'off'}" id="autofire-toggle" aria-pressed="${this.save.get().mobileAutoFire}">
           <span class="autofire-icon">🔫</span>
@@ -521,11 +590,11 @@ export class UIManager {
 
     if (d.packages !== this.hudCache.packages) {
       const ammo = document.getElementById('hud-ammo');
-      if (ammo) ammo.textContent = d.packages > 0 ? `📦×${d.packages}` : '📧';
+      if (ammo) ammo.textContent = `📦 ${d.packages}`;
       const shootIcon = document.getElementById('shoot-icon');
       const shootLabel = document.getElementById('shoot-label');
-      if (shootIcon) shootIcon.textContent = d.packages > 0 ? '📦' : '📧';
-      if (shootLabel) shootLabel.textContent = d.packages > 0 ? 'PACK' : 'MAIL';
+      if (shootIcon) shootIcon.textContent = '📧';
+      if (shootLabel) shootLabel.textContent = IS_MOBILE ? 'MAIL' : 'SHOOT';
     }
 
     const puEl = document.getElementById('hud-powerup');

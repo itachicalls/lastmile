@@ -88,7 +88,13 @@ export type LevelDef = {
   difficulty: number;
 };
 
-export type TurretId = 'pepper-drone' | 'box-cannon' | 'helper-beacon';
+export type TurretId =
+  | 'pepper-drone'
+  | 'box-cannon'
+  | 'helper-beacon'
+  | 'spread-mail'
+  | 'pierce-pack'
+  | 'homing-stamp';
 export type AbilityId = 'smoke-bomb' | 'rally-horn' | 'dash';
 export type UpgradeId = 'package-armor' | 'coin-magnet' | 'jump-boots' | 'starter-pouches';
 
@@ -158,7 +164,7 @@ export const INITIAL_RUN: RunState = {
   maxConvoy: 50,
   integrity: 3,
   maxIntegrity: 3,
-  packages: 3,
+  packages: 0,
   maxPackages: 25,
   stamps: 0,
   coins: 0,

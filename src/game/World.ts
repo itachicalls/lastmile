@@ -1,9 +1,15 @@
 import * as THREE from 'three';
 import type { DistrictTheme } from '../types';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
-import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeStatic, lerpColor } from './platform';
+import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeStatic, lerpColor, skyNightLevel, nightEffectStrength, lightingNightBlend, gameplayNightVisibility } from './platform';
 import { SkyEffects } from './SkyEffects';
+import type { SpectacleKind } from './SpectacleDirector';
 import { getBrickTexture, getSidingTexture, getRoofShingleTexture, getBarkTexture, getLeafTexture } from './WorldTextures';
+
+
+function skyNightFromTime(time: number): number {
+  return skyNightLevel(time);
+}
 
 type AnimProp = {
   obj: THREE.Object3D;
@@ -21,6 +27,8 @@ export type RoadFxInput = {
   speed: number;
   baseSpeed: number;
   playerX: number;
+  shootPulse?: number;
+  combatIntensity?: number;
 };
 
 type BoostPad = {
@@ -61,6 +69,8 @@ export class World {
   private skyPhase = -1;
   private skyTick = 0;
   private skyNight = 0;
+  private skyNightFx = 0;
+  private blackoutBoost = 0;
   private playerZ = 0;
   private cullTimer = 0;
   private skyEffects: SkyEffects | null = null;
@@ -411,7 +421,12 @@ export class World {
     this.skyTexture = new THREE.CanvasTexture(this.skyCanvas);
     this.skyTexture.colorSpace = THREE.SRGBColorSpace;
     this.scene.background = this.skyTexture;
-    this.paintSky(0, theme);
+    const night = skyNightFromTime(0);
+    this.skyNight = night;
+    this.skyNightFx = nightEffectStrength(night);
+    this.paintSky(night, theme);
+    this.applySkyLighting(night);
+    this.skyEffects?.setNight(night);
   }
 
   private drawSkyCloud(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, alpha: number): void {
@@ -458,10 +473,10 @@ export class World {
     const w = this.skyCanvas.width;
     const h = this.skyCanvas.height;
 
-    const dayTop = lerpColor(theme.sky, '#87CEEB', 0.25);
-    const dayMid = lerpColor(theme.skyBottom, '#B3E5FC', 0.35);
-    const dayHorizon = lerpColor('#FFF176', theme.fog, 0.45);
-    const dayGlow = lerpColor('#FFFDE7', theme.ground, 0.15);
+    const dayTop = lerpColor(theme.sky, '#64B5F6', 0.4);
+    const dayMid = lerpColor(theme.skyBottom, '#BBDEFB', 0.45);
+    const dayHorizon = lerpColor('#FFECB3', theme.fog, 0.25);
+    const dayGlow = lerpColor('#E3F2FD', theme.ground, 0.2);
 
     const top = lerpColor(dayTop, '#0a0520', night);
     const mid = lerpColor(dayMid, '#1a1040', night);
@@ -477,8 +492,8 @@ export class World {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    if (night > 0.15 && night < 0.75) {
-      const dusk = Math.sin(night * Math.PI) * 0.85;
+    if (night > 0.22 && night < 0.72) {
+      const dusk = Math.sin(((night - 0.22) / 0.5) * Math.PI) * 0.85;
       const duskGrad = ctx.createLinearGradient(0, h * 0.45, 0, h);
       duskGrad.addColorStop(0, 'rgba(255,120,60,0)');
       duskGrad.addColorStop(0.45, `rgba(255,140,80,${0.35 * dusk})`);
@@ -500,10 +515,10 @@ export class World {
       ctx.fillRect(0, 0, w, h);
     }
 
-    if (night < 0.72) {
-      const sunAlpha = Math.max(0, 1 - night * 1.35);
-      const sunX = w * 0.74;
-      const sunY = h * 0.34;
+    if (night < 0.75) {
+      const sunAlpha = Math.max(0, 1 - Math.max(0, night - 0.15) * 1.25);
+      const sunX = w * (0.62 + night * 0.12);
+      const sunY = h * (0.28 + night * 0.12);
       const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 140);
       sunGrad.addColorStop(0, `rgba(255,255,240,${0.98 * sunAlpha})`);
       sunGrad.addColorStop(0.2, `rgba(255,240,160,${0.7 * sunAlpha})`);
@@ -513,8 +528,8 @@ export class World {
       ctx.fillRect(0, 0, w, h);
     }
 
-    if (night > 0.28) {
-      const moonAlpha = Math.min(1, (night - 0.28) * 1.35);
+    if (night > 0.48) {
+      const moonAlpha = Math.min(1, (night - 0.48) * 1.6);
       const moonX = w * 0.78;
       const moonY = h * 0.22;
       ctx.fillStyle = `rgba(240,240,255,${0.9 * moonAlpha})`;
@@ -527,8 +542,8 @@ export class World {
       ctx.fill();
     }
 
-    if (night < 0.55) {
-      const cloudAlpha = 0.55 * (1 - night * 1.2);
+    if (night < 0.45) {
+      const cloudAlpha = 0.6 * (1 - night * 1.35);
       const clouds: [number, number, number][] = [
         [0.12, 0.28, 1.1],
         [0.42, 0.22, 0.95],
@@ -542,8 +557,8 @@ export class World {
       }
     }
 
-    if (night > 0.2) {
-      const starAlpha = Math.min(1, (night - 0.2) * 1.3);
+    if (night > 0.42) {
+      const starAlpha = Math.min(1, (night - 0.42) * 1.45);
       const starCount = IS_MOBILE ? 50 : 65;
       for (let i = 0; i < starCount; i++) {
         const sx = ((i * 97) % 1000) / 1000;
@@ -575,66 +590,69 @@ export class World {
   /** Smooth lighting every frame — independent of canvas repaint rate. */
   private applySkyLighting(night: number): void {
     const theme = this.skyTheme;
-    const fogColor = lerpColor(theme.fog, theme.id >= 6 ? '#120828' : '#050510', night);
+    const fx = nightEffectStrength(night);
+    const lightNight = lightingNightBlend(night);
+    const fogColor = lerpColor(theme.fog, theme.id >= 6 ? '#120828' : '#050510', lightNight);
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.set(fogColor);
     }
 
     const daySky = new THREE.Color(theme.sky);
     const nightSky = new THREE.Color(theme.id >= 6 ? '#1a0a40' : '#223355');
-    const hemiSky = daySky.clone().lerp(nightSky, night);
+    const hemiSky = daySky.clone().lerp(nightSky, lightNight);
     const dayGround = new THREE.Color(theme.ground);
     const nightGround = new THREE.Color('#0a0a14');
-    const hemiGround = dayGround.clone().lerp(nightGround, night * 0.85);
+    const hemiGround = dayGround.clone().lerp(nightGround, lightNight * 0.85);
 
     if (this.hemiLight) {
       this.hemiLight.color.copy(hemiSky);
       this.hemiLight.groundColor.copy(hemiGround);
-      this.hemiLight.intensity = theme.ambient * 0.95 * (1 - night * 0.55);
+      this.hemiLight.intensity = theme.ambient * 0.78 * (1 - lightNight * 0.45);
     }
     if (this.ambientLight) {
-      const amb = new THREE.Color('#ffffff').lerp(new THREE.Color('#8899cc'), night * 0.65);
+      const amb = new THREE.Color('#ffffff').lerp(new THREE.Color('#8899cc'), lightNight * 0.65);
       this.ambientLight.color.copy(amb);
-      this.ambientLight.intensity = theme.ambient * 0.38 * (1 - night * 0.6);
+      const vis = gameplayNightVisibility(night);
+      this.ambientLight.intensity = theme.ambient * 0.32 * (1 - lightNight * 0.42) + vis * 0.22;
     }
     if (this.sunLight) {
       const sunDay = new THREE.Color(theme.id >= 3 ? '#FFF0D0' : '#FFF8F0');
       const sunNight = new THREE.Color('#6688bb');
-      this.sunLight.color.copy(sunDay.lerp(sunNight, night));
-      this.sunLight.intensity = theme.sun * (1 - night * 0.72);
+      this.sunLight.color.copy(sunDay.lerp(sunNight, lightNight));
+      this.sunLight.intensity = theme.sun * 0.88 * (1 - lightNight * 0.55);
     }
     if (this.fillLight) {
       const fillDay = new THREE.Color(theme.skyBottom || theme.sky);
       const fillNight = new THREE.Color(theme.id >= 4 ? '#004D40' : '#1a237e');
-      this.fillLight.color.copy(fillDay.lerp(fillNight, night * 0.75));
-      this.fillLight.intensity = theme.ambient * 0.22 * (0.45 + night * 0.65);
+      this.fillLight.color.copy(fillDay.lerp(fillNight, lightNight * 0.75));
+      this.fillLight.intensity = theme.ambient * 0.24 * (0.55 + lightNight * 0.45);
     }
     if (this.rimLight) {
-      this.rimLight.intensity = 0.12 + (1 - night) * 0.18;
-      this.rimLight.color.set(lerpColor('#FFE082', '#80DEEA', night * 0.6));
+      this.rimLight.intensity = 0.1 + (1 - lightNight) * 0.14;
+      this.rimLight.color.set(lerpColor('#FFE082', '#80DEEA', fx * 0.85));
     }
     if (this.accentLight) {
-      this.accentLight.intensity = (theme.id >= 6 ? 0.55 : 0.25) * (0.35 + night * 0.85);
+      this.accentLight.intensity = (theme.id >= 6 ? 0.55 : 0.25) * (0.25 + fx * 0.95);
     }
     if (this.roadNightLight) {
-      this.roadNightLight.intensity = night * (IS_MOBILE ? 0.35 : 0.45);
-      this.roadNightLight.color.set(lerpColor('#FFE082', '#FFF3E0', 1 - night * 0.25));
+      this.roadNightLight.intensity = fx * (IS_MOBILE ? 0.45 : 0.58);
+      this.roadNightLight.color.set(lerpColor('#FFE082', '#FFF3E0', 1 - fx * 0.25));
     }
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
-      const dayPop = 0.12 + (1 - night) * 0.14;
-      rm.emissiveIntensity = dayPop + night * (IS_MOBILE ? 0.42 : 0.62);
-      rm.emissive.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), night * 0.35);
-      rm.roughness = 0.8 - night * 0.14;
-      rm.metalness = 0.08 + night * 0.12;
-      rm.color.set('#c8cdd2').lerp(new THREE.Color('#9aa8b8'), night * 0.35);
+      const dayPop = 0.08 + (1 - lightNight) * 0.1;
+      rm.emissiveIntensity = dayPop + fx * (IS_MOBILE ? 0.38 : 0.55);
+      rm.emissive.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), fx * 0.35);
+      rm.roughness = 0.82 - lightNight * 0.1 - fx * 0.08;
+      rm.metalness = 0.06 + fx * 0.14;
+      rm.color.set('#c8cdd2').lerp(new THREE.Color('#9aa8b8'), lightNight * 0.25);
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
-      const base = IS_MOBILE ? 0.14 : 0.22;
-      gm.opacity = base + night * (IS_MOBILE ? 0.38 : 0.52);
-      gm.color.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), night * 0.25);
-      this.roadGlowMesh.visible = night > 0.06 || !IS_MOBILE;
+      const base = IS_MOBILE ? 0.16 : 0.24;
+      gm.opacity = fx > 0.04 ? base + fx * (IS_MOBILE ? 0.42 : 0.58) : 0;
+      gm.color.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), fx * 0.25);
+      this.roadGlowMesh.visible = fx > 0.04;
     }
   }
 
@@ -813,17 +831,19 @@ export class World {
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 24; i++) {
-      const y = (i * 17) % 120;
-      const w = 40 + (i % 5) * 12;
-      const g = ctx.createLinearGradient(64 - w / 2, y, 64 + w / 2, y);
-      g.addColorStop(0, 'rgba(255,255,255,0)');
-      g.addColorStop(0.35, `rgba(255,255,255,${0.08 + (i % 3) * 0.04})`);
-      g.addColorStop(0.5, `rgba(255,255,255,${0.22 + (i % 4) * 0.05})`);
-      g.addColorStop(0.65, `rgba(255,255,255,${0.08 + (i % 3) * 0.04})`);
-      g.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, y - 1, 128, 3 + (i % 2));
+    // Vertical edge wisps only — keeps the center play lane clear for hazards
+    for (const side of [0, 1]) {
+      for (let i = 0; i < 14; i++) {
+        const x = side === 0 ? 6 + (i % 4) * 5 : 122 - (i % 4) * 5;
+        const y = (i * 23) % 110;
+        const h = 18 + (i % 4) * 10;
+        const g = ctx.createLinearGradient(x, y, x, y + h);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(0.4, `rgba(255,255,255,${0.06 + (i % 3) * 0.02})`);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x - 1, y, 2, h);
+      }
     }
     this.roadStreakTex = new THREE.CanvasTexture(c);
     this.roadStreakTex.colorSpace = THREE.SRGBColorSpace;
@@ -837,7 +857,7 @@ export class World {
     c.width = 128;
     c.height = 128;
     const ctx = c.getContext('2d')!;
-    ctx.strokeStyle = 'rgba(180,220,255,0.35)';
+    ctx.strokeStyle = 'rgba(180,220,255,0.22)';
     ctx.lineWidth = 1.2;
     for (let i = 0; i < 48; i++) {
       const x = (i * 23) % 128;
@@ -928,14 +948,27 @@ export class World {
   }
 
   getSkyNight(): number {
-    return this.skyNight;
+    return Math.min(1, this.skyNight + this.blackoutBoost);
+  }
+
+  /** Deep-night only — road neon, enemy glow, bloom boost. */
+  getNightFx(): number {
+    return Math.min(1, this.skyNightFx + this.blackoutBoost * 0.85);
+  }
+
+  /** Readability for hazards & aliens when sky is dark. */
+  getGameplayNight(): number {
+    return gameplayNightVisibility(Math.min(1, this.skyNight + this.blackoutBoost * 0.45));
+  }
+
+  setBlackout(boost: number): void {
+    this.blackoutBoost = Math.max(0, Math.min(0.75, boost));
   }
 
   private updateSkyCycle(time: number, dt: number): void {
-    // Triangle wave: day → night → day, ~75 s per full cycle
-    const cycleT = (time % 75) / 75;
-    const night = cycleT < 0.5 ? cycleT * 2 : (1 - cycleT) * 2;
+    const night = skyNightFromTime(time);
     this.skyNight = night;
+    this.skyNightFx = nightEffectStrength(night);
 
     this.skyEffects?.setNight(night);
     this.applySkyLighting(night);
@@ -979,13 +1012,8 @@ export class World {
       const x = (i * 47) % size;
       const y = (i * 83) % size;
       const n = ((x * 17 + y * 31) % 100) / 100;
-      ctx.fillStyle = n > 0.55 ? 'rgba(255,255,255,0.022)' : 'rgba(0,0,0,0.04)';
-      ctx.fillRect(x, y, 1 + (i % 2), 1 + (i % 3));
-    }
-
-    for (let y = 0; y < size; y += 3) {
-      ctx.fillStyle = y % 6 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.035)';
-      ctx.fillRect(0, y, size, 2);
+      ctx.fillStyle = n > 0.55 ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.025)';
+      ctx.fillRect(x, y, 1, 1);
     }
 
     ctx.fillStyle = 'rgba(0,0,0,0.11)';
@@ -1816,6 +1844,10 @@ export class World {
     }
   }
 
+  playSpectacle(kind: SpectacleKind, playerZ: number): void {
+    this.skyEffects?.playSpectacle(kind, playerZ);
+  }
+
   update(time: number, playerZ = this.playerZ, dt = 0.016, fx?: RoadFxInput): void {
     if (fx) this.roadFx = fx;
     this.playerZ = playerZ;
@@ -1826,8 +1858,8 @@ export class World {
 
     const scroll = time * 0.12;
     const speedRatio = this.roadFx.baseSpeed > 0 ? this.roadFx.speed / this.roadFx.baseSpeed : 1;
-    const turbo = this.roadFx.turbo || speedRatio > 1.12;
-    const streakScroll = scroll * (turbo ? 2.8 + speedRatio * 0.5 : speedRatio > 1.05 ? 1.6 : 1);
+    const turbo = this.roadFx.turbo;
+    const streakScroll = scroll * (turbo ? 2.4 + speedRatio * 0.35 : 1);
 
     if (this.roadTexture) this.roadTexture.offset.y = -scroll;
     if (this.roadEmissiveTex) this.roadEmissiveTex.offset.y = -scroll;
@@ -1836,33 +1868,41 @@ export class World {
     if (this.roadRainTex) this.roadRainTex.offset.y = -time * 0.85;
 
     const night = this.skyNight;
+    const nightFx = this.skyNightFx;
+    const lightNight = lightingNightBlend(night);
     const wetMul = 1 + this.wetFactor * (this.wetFactor > 0.45 ? 1 : 0.65);
 
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
-      const dayPop = 0.12 + (1 - night) * 0.14;
-      const base = dayPop + night * (IS_MOBILE ? 0.42 : 0.62);
-      const pulse = 1 + Math.sin(time * 2.4) * 0.04 * night;
+      const dayPop = 0.1 + (1 - lightNight) * 0.12;
+      const base = dayPop + nightFx * (IS_MOBILE ? 0.38 : 0.55);
+      const pulse = 1 + Math.sin(time * 2.4) * 0.04 * nightFx;
       rm.emissiveIntensity = base * pulse * (turbo ? 1.12 : 1);
-      rm.roughness = 0.8 - night * 0.14 - this.wetFactor * 0.12;
-      rm.metalness = 0.08 + night * 0.12 + this.wetFactor * 0.14;
+      rm.roughness = 0.82 - lightNight * 0.1 - this.wetFactor * 0.12;
+      rm.metalness = 0.06 + nightFx * 0.14 + this.wetFactor * 0.14;
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
-      const base = (IS_MOBILE ? 0.14 : 0.22) + night * (IS_MOBILE ? 0.38 : 0.52);
-      const pulse = 1 + Math.sin(time * 3.1 + 0.5) * 0.06 * night;
-      gm.opacity = base * pulse * wetMul * (turbo ? 1.15 : 1);
+      const base = (IS_MOBILE ? 0.16 : 0.24) + nightFx * (IS_MOBILE ? 0.42 : 0.58);
+      const combat = this.roadFx.combatIntensity ?? 0;
+      const shoot = this.roadFx.shootPulse ?? 0;
+      const pulse = 1 + Math.sin(time * 3.1 + 0.5) * 0.06 * nightFx;
+      gm.opacity = nightFx > 0.04 ? base * pulse * wetMul * (turbo ? 1.15 : 1) * (1 + combat * 0.35 + shoot * 0.5) : 0;
+      this.roadGlowMesh.visible = nightFx > 0.04;
       if (turbo) gm.color.set(this.roadAccent.secondary);
+      else if (shoot > 0.2) gm.color.set(this.roadAccent.primary).lerp(new THREE.Color('#00E5FF'), shoot);
+      else if (combat > 0.3) gm.color.set(this.roadAccent.secondary);
     }
     if (this.roadStreakMesh) {
       const sm = this.roadStreakMesh.material as THREE.MeshBasicMaterial;
-      const target = turbo ? 0.28 + (speedRatio - 1) * 0.22 : speedRatio > 1.08 ? 0.08 : 0;
-      sm.opacity += (target - sm.opacity) * Math.min(1, dt * 8);
-      sm.color.set(turbo ? this.roadAccent.secondary : this.roadAccent.primary);
+      const target = turbo ? 0.12 + (speedRatio - 1) * 0.08 : 0;
+      sm.opacity += (target - sm.opacity) * Math.min(1, dt * 10);
+      sm.visible = sm.opacity > 0.01;
+      if (turbo) sm.color.set(this.roadAccent.secondary);
     }
     if (this.roadRainMesh) {
       const rm = this.roadRainMesh.material as THREE.MeshBasicMaterial;
-      rm.opacity = this.wetFactor * (IS_MOBILE ? 0.22 : 0.32);
+      rm.opacity = this.wetFactor * (IS_MOBILE ? 0.16 : 0.24);
       rm.visible = this.wetFactor > 0.18;
     }
 

@@ -26,8 +26,8 @@ import {
   createPackagePickups,
   updatePackagePickups,
   tryCollectPackages,
-  spawnThrow,
   spawnMailShot,
+  spawnGoldenMail,
   updateThrows,
   disposePickups,
   type PackagePickup,
@@ -40,8 +40,11 @@ import {
   runnerTouchRadius,
   disposeRunners,
   disposeRunner,
+  isHeadshot,
   type RunnerEntity,
 } from './Runners';
+import { sfx } from './SoundManager';
+import { UfoSpotlightHazard } from './UfoSpotlight';
 import {
   createPowerUp,
   updatePowerUps,
@@ -62,12 +65,13 @@ import {
 } from './Spawner';
 import { ParticleSystem, CameraShake } from './Effects';
 import { RenderPipeline } from './RenderPipeline';
+import { SpectacleDirector } from './SpectacleDirector';
 import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
 import { getViewportMetrics, onViewportChange, applyMobileViewportLock } from './viewport';
 import { getCharacter } from '../data/characters';
 import { getLevel } from '../data/levels';
 import { getDistrict } from '../data/districts';
-import type { SaveData, RunState, GameResult, LevelDef, DeathReason } from '../types';
+import type { SaveData, RunState, GameResult, LevelDef, DeathReason, TurretId } from '../types';
 import { INITIAL_RUN } from '../types';
 
 export type GameCallbacks = {
@@ -97,6 +101,7 @@ export type HudData = {
   forkHint?: string;
   vaultHint?: string;
   powerUpLabel?: string;
+  comboLabel?: string;
   invincible: boolean;
   screenBlur?: boolean;
 };
@@ -149,8 +154,6 @@ export class Game {
   private shootCd = 0;
   private mailGunDamage = 3;
   private mailGunRate = 0.22;
-  private packageDamage = 8;
-  private packageRate = 0.38;
   private startPackages = 0;
   private pickupRadius = 2.2;
 
@@ -184,6 +187,29 @@ export class Game {
   private nextPackageZ = 25;
   private nextCoinZ = 45;
   private spawnHorizon = 0;
+  private comboCount = 0;
+  private comboTimer = 0;
+  private nextMiniEventZ = 200;
+  private nextUfoHazardZ = 130;
+  private ufoHazard: UfoSpotlightHazard | null = null;
+  private blackoutTimer = 0;
+  private bossSpawned = false;
+  private shootSpread = false;
+  private shootPierce = 0;
+  private shootHoming = false;
+  private homingSteerBoost = 1;
+  private baseShootSpread = false;
+  private baseShootPierce = 0;
+  private baseShootHoming = false;
+  private gearTrialTimer = 0;
+  private gearTrialTurret: TurretId | null = null;
+  private styleStreak = 0;
+  private styleStreakTimer = 0;
+  private magnetTimer = 0;
+  private comboStingerPlayed = false;
+  private styleToastTimer = 0;
+  private spectacle = new SpectacleDirector();
+  private shootPulse = 0;
 
   private cb: GameCallbacks;
   private raf = 0;
@@ -212,7 +238,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.BasicShadowMap;
     if (ENABLE_TONE_MAPPING) {
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = IS_MOBILE ? 1.08 : 1.22;
+      this.renderer.toneMappingExposure = IS_MOBILE ? 0.92 : 1.02;
     } else {
       this.renderer.toneMapping = THREE.NoToneMapping;
     }
@@ -343,35 +369,62 @@ export class Game {
     };
 
     this.mailGunRate = 0.22;
-    this.packageRate = 0.38;
     if (this.save.equippedTurrets.includes('pepper-drone')) {
       this.mailGunRate = Math.max(0.12, 0.22 - (this.save.purchases['pepper-drone'] ?? 0) * 0.03);
     }
     if (this.save.equippedTurrets.includes('box-cannon')) {
       this.mailGunDamage += 1 + (this.save.purchases['box-cannon'] ?? 0);
-      this.packageDamage += 2 + (this.save.purchases['box-cannon'] ?? 0);
     }
     if (this.save.equippedTurrets.includes('helper-beacon')) {
       const lv = this.save.purchases['helper-beacon'] ?? 0;
       this.mailGunDamage += lv * 2;
-      this.packageDamage += lv * 3;
     }
+    this.shootSpread = this.save.equippedTurrets.includes('spread-mail');
+    this.shootPierce = this.save.equippedTurrets.includes('pierce-pack')
+      ? 1 + (this.save.purchases['pierce-pack'] ?? 0)
+      : 0;
+    this.shootHoming = this.save.equippedTurrets.includes('homing-stamp');
+    this.baseShootSpread = this.shootSpread;
+    this.baseShootPierce = this.shootPierce;
+    this.baseShootHoming = this.shootHoming;
+    this.applyGearSynergies();
+    this.gearTrialTimer = 0;
+    this.gearTrialTurret = null;
+    this.styleStreak = 0;
+    this.styleStreakTimer = 0;
+    this.magnetTimer = 0;
+    this.comboStingerPlayed = false;
+    this.homingSteerBoost = 1;
 
+    this.comboCount = 0;
+    this.comboTimer = 0;
+    this.nextMiniEventZ = 200;
+    this.nextUfoHazardZ = 120 + Math.random() * 35;
+    if (this.ufoHazard) {
+      this.ufoHazard.dispose();
+      this.ufoHazard = null;
+    }
+    this.blackoutTimer = 0;
+    this.bossSpawned = false;
+    this.world.setBlackout(0);
     this.pickupRadius = 2.2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.4;
+    this.spectacle.reset();
+    this.shootPulse = 0;
 
     const lastSeg = level.segments[level.segments.length - 1];
     this.levelLength = lastSeg.kind === 'dropoff' ? lastSeg.z + 20 : 800;
     this.spawnHorizon = this.levelLength - 30;
 
-    this.nextObstacleZ = 30;
+    this.nextObstacleZ = 38;
     this.nextVaultZ = 78 + Math.floor(Math.random() * 24);
-    this.nextRunnerZ = 45 + Math.random() * 20;
+    this.nextRunnerZ = 38 + Math.random() * 12;
     this.nextPowerUpZ = 28 + Math.random() * 12;
     this.nextPackageZ = 20;
     this.nextCoinZ = 35;
 
     const theme = getDistrict(level.district);
     this.world.build(theme, this.levelLength);
+    sfx.setDistrict(level.district);
 
     this.player = new Player(this.scene, getCharacter(this.save.selectedCharacter ?? 'johnny'));
     this.player.setJumpPower(12 + (this.save.purchases['jump-boots'] ?? 0) * 1.4);
@@ -456,7 +509,10 @@ export class Game {
 
   jump(): void {
     if (!this.running || this.dead) return;
-    if (this.player.jump()) this.shake.shake(0.08);
+    if (this.player.jump()) {
+      this.shake.shake(0.08);
+      sfx.jump();
+    }
   }
 
   slide(): void {
@@ -464,14 +520,12 @@ export class Game {
     if (this.player.slide()) this.shake.shake(0.05);
   }
 
-  /** Left click / tap — mail if no packages, package throw if stocked */
+  /** Mail blaster — unlimited; packages are collected for delivery score only. */
   shoot(): void {
     if (!this.running || this.dead || this.shootCd > 0) return;
 
-    const usePackage = this.run.packages > 0;
-    const rate = usePackage ? this.packageRate : this.mailGunRate;
-    if (this.fastShotTimer > 0) this.shootCd = rate * 0.45;
-    else this.shootCd = rate;
+    const rate = this.mailGunRate;
+    this.shootCd = this.fastShotTimer > 0 ? rate * 0.45 : rate;
 
     let targetX = this.player.x;
     let targetZ = this.player.z + 40;
@@ -481,14 +535,42 @@ export class Game {
       targetZ = nearest.z;
     }
 
-    if (usePackage) {
-      this.run.packages--;
-      this.player.throwAnim();
-      this.throws.push(spawnThrow(this.scene, this.player.x, this.player.z, targetX, targetZ));
+    this.player.mailGunAnim();
+    sfx.shootMail();
+    this.shootPulse = 0.5;
+    this.shake.shake(0.035);
+    this.spectacle.bumpCombat(0.07);
+    this.particles.muzzleFlash(this.player.x + 0.35, 1.05, this.player.z + 0.55);
+
+    const mailOpts = {
+      pierceLeft: this.shootPierce,
+      homing: this.shootHoming,
+    };
+    if (this.shootSpread) {
+      for (const spreadIndex of [-1, 0, 1]) {
+        this.throws.push(
+          spawnMailShot(
+            this.scene,
+            this.player.x,
+            this.player.z,
+            targetX,
+            targetZ,
+            this.mailGunDamage,
+            { ...mailOpts, spreadIndex }
+          )
+        );
+      }
     } else {
-      this.player.mailGunAnim();
       this.throws.push(
-        spawnMailShot(this.scene, this.player.x, this.player.z, targetX, targetZ, this.mailGunDamage)
+        spawnMailShot(
+          this.scene,
+          this.player.x,
+          this.player.z,
+          targetX,
+          targetZ,
+          this.mailGunDamage,
+          mailOpts
+        )
       );
     }
   }
@@ -521,6 +603,8 @@ export class Game {
     this.specialCharge = 0;
     this.specialShakesLeft = 3;
     this.specialShakeTimer = 0;
+    this.convoy.reactQuake();
+    sfx.quake();
     this.cb.onToast('💥 GROUND QUAKE ×3!');
     this.emitHud(this.level.timeLimit - this.elapsed);
   }
@@ -609,7 +693,24 @@ export class Game {
       if (this.dashTimer <= 0) this.dashActive = false;
     }
     if (this.obstacleCooldown > 0) this.obstacleCooldown -= dt;
-
+    if (this.comboTimer > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) this.comboCount = 0;
+    }
+    if (this.blackoutTimer > 0) {
+      this.blackoutTimer -= dt;
+      if (this.blackoutTimer <= 0) this.world.setBlackout(0);
+    }
+    if (this.styleStreakTimer > 0) {
+      this.styleStreakTimer -= dt;
+      if (this.styleStreakTimer <= 0) this.styleStreak = 0;
+    }
+    if (this.magnetTimer > 0) this.magnetTimer -= dt;
+    if (this.gearTrialTimer > 0) {
+      this.gearTrialTimer -= dt;
+      if (this.gearTrialTimer <= 0) this.endGearTrial();
+    }
+    sfx.setNight(this.world.getSkyNight());
     this.player.z += this.run.speed * scaledDt;
     this.run.distance = this.player.z;
     this.specialCharge = Math.min(1, this.specialCharge + this.run.speed * scaledDt * 0.0005);
@@ -623,7 +724,7 @@ export class Game {
     }
     this.player.targetX = THREE.MathUtils.clamp(this.player.targetX, -this.roadHalfWidth, this.roadHalfWidth);
 
-    this.player.update(dt, this.roadHalfWidth, true, this.run.speed);
+    this.player.update(dt, this.roadHalfWidth, true, this.run.speed, this.world.getGameplayNight());
     if (this.run.convoy !== this.lastConvoyCount) {
       this.convoy.setCount(IS_MOBILE ? 0 : Math.min(2, this.run.convoy));
       this.lastConvoyCount = this.run.convoy;
@@ -631,6 +732,10 @@ export class Game {
     this.convoy.update(this.player.x, this.player.z, this.gameTime);
 
     this.proceduralSpawn();
+    this.updateMiniEvents();
+    this.updateSpectacle(dt);
+    this.updateUfoHazard(dt);
+    this.maybeSpawnBoss();
     this.cullBehind();
 
     const pz = this.player.z;
@@ -644,14 +749,27 @@ export class Game {
     updateCoins(this.coins, dt, this.gameTime, pz);
     updatePackagePickups(this.packagePickups, this.gameTime, pz);
     updatePowerUps(this.powerUps, this.gameTime, pz);
-    updateRunners(this.runners, scaledDt, this.gameTime, 1, pz);
-    this.throws = updateThrows(this.throws, dt, this.scene, this.gameTime);
+    updateRunners(this.runners, scaledDt, this.gameTime, 1, pz, (r) => {
+      sfx.telegraphWarn();
+      if (Math.random() < 0.4) sfx.alienChatter();
+    }, this.world.getGameplayNight());
+    this.throws = updateThrows(
+      this.throws,
+      dt,
+      this.scene,
+      this.gameTime,
+      this.runners,
+      this.homingSteerBoost
+    );
     this.particles.update(dt);
+    this.shootPulse = Math.max(0, this.shootPulse - dt * 2.8);
     this.world.update(this.gameTime, pz, dt, {
       turbo: this.turboTimer > 0,
       speed: this.run.speed,
       baseSpeed: this.run.baseSpeed,
       playerX: this.player.x,
+      shootPulse: this.shootPulse,
+      combatIntensity: this.spectacle.getCombatIntensity(),
     });
 
     for (const g of this.routeGates) {
@@ -661,21 +779,35 @@ export class Game {
       if (!v.resolved && isNearZ(v.z, pz, IS_MOBILE ? 42 : 55)) animateVaultGate(v, this.gameTime);
     }
     if (this.dropoff && isNearZ(this.dropoff.z, pz, IS_MOBILE ? 42 : 55)) animateDropoff(this.dropoff, this.gameTime);
-    updateObstacles(this.obstacles, this.gameTime, pz);
+    updateObstacles(this.obstacles, this.gameTime, pz, this.world.getGameplayNight());
 
-    const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, this.pickupRadius);
+    const collectRadius = this.pickupRadius + (this.magnetTimer > 0 ? 2.8 : 0);
+    const coinGain = tryCollectCoin(this.coins, this.player.x, this.player.z, collectRadius);
     if (coinGain) {
       this.run.coins += coinGain;
       this.particles.collectBurst(this.player.x, this.player.z);
     }
 
-    const pkgGain = tryCollectPackages(this.packagePickups, this.player.x, this.player.z, this.pickupRadius);
-    if (pkgGain) {
-      this.run.packages = Math.min(this.run.maxPackages, this.run.packages + pkgGain);
+    const pkgCollect = tryCollectPackages(
+      this.packagePickups,
+      this.player.x,
+      this.player.z,
+      collectRadius
+    );
+    if (pkgCollect.packages) {
+      this.run.packages = Math.min(this.run.maxPackages, this.run.packages + pkgCollect.packages);
       this.particles.collectBurst(this.player.x, this.player.z);
+      this.spectacle.bumpCombat(0.04);
+    }
+    if (pkgCollect.golden) {
+      this.run.coins += 18 * pkgCollect.golden;
+      this.fastShotTimer = Math.max(this.fastShotTimer, 4);
+      this.particles.collectBurst(this.player.x, this.player.z);
+      this.cb.onToast('✨ Golden Mail — fast shots!');
+      sfx.combo(4);
     }
 
-    const pu = tryCollectPowerUp(this.powerUps, this.player.x, this.player.z, this.pickupRadius);
+    const pu = tryCollectPowerUp(this.powerUps, this.player.x, this.player.z, collectRadius);
     if (pu) {
       this.applyPowerUp(pu);
       this.particles.collectBurst(this.player.x, this.player.z);
@@ -683,6 +815,7 @@ export class Game {
 
     this.checkThrowHits();
     this.checkObstacles();
+    this.checkNearMisses();
     this.checkRunners();
     this.checkRouteGates();
     this.checkVaultGates();
@@ -725,6 +858,9 @@ export class Game {
       this.turboTimer = 4;
       this.run.speed = this.run.baseSpeed * 1.55;
       this.shake.shake(0.35);
+      this.convoy.reactTurbo();
+      sfx.turbo();
+      sfx.honk();
     } else if (kind === 'blur') {
       this.blurTimer = 3.5;
       this.player.setGhostMode(true);
@@ -751,7 +887,14 @@ export class Game {
       slideReady: !this.player.isJumping && !this.player.isSliding,
       forkHint: this.forkHint || undefined,
       vaultHint: this.vaultHint || undefined,
-      powerUpLabel: this.powerUpLabel || undefined,
+      powerUpLabel:
+        this.comboCount >= 2
+          ? `⚡ ${this.comboCount}x COMBO`
+          : this.magnetTimer > 0
+            ? '🧲 STYLE MAGNET'
+            : this.gearTrialTimer > 0 && this.gearTrialTurret
+              ? `🎁 ${Game.gearTrialName(this.gearTrialTurret)}`
+              : this.powerUpLabel || undefined,
       invincible: this.invincibleTimer > 0,
       screenBlur: this.blurTimer > 0,
     });
@@ -765,8 +908,8 @@ export class Game {
     const ahead = this.player.z + spawnAhead;
     const maxPerFrame = 1;
 
-    const maxObstacles = IS_MOBILE ? 14 : 18;
-    const maxRunners = IS_MOBILE ? 5 : 7;
+    const maxObstacles = IS_MOBILE ? 9 : 12;
+    const maxRunners = IS_MOBILE ? 9 : 12;
     const maxPowerUps = IS_MOBILE ? 6 : 10;
 
     let obsN = 0;
@@ -777,7 +920,7 @@ export class Game {
       for (let i = 0; i < laneLimit; i++) {
         this.obstacles.push(createObstacle(this.scene, pickObstacleForLevel(this.level.id), lanes[i], this.nextObstacleZ));
       }
-      this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 6;
+      this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 10;
       obsN++;
     }
 
@@ -792,8 +935,23 @@ export class Game {
     while (this.nextRunnerZ < ahead && this.nextRunnerZ < this.spawnHorizon && runN < maxPerFrame) {
       if (this.runners.length >= maxRunners) break;
       const tier = pickRunnerTier(diff);
-      this.runners.push(createRunner(this.scene, tier, pickRandomLane(), this.nextRunnerZ));
-      this.nextRunnerZ += runnerSpacing(diff) + Math.random() * 12;
+      const lane = pickRandomLane();
+      const elite = Math.random() < (IS_MOBILE ? 0.05 : 0.08);
+      this.runners.push(createRunner(this.scene, tier, lane, this.nextRunnerZ, { elite }));
+      if (elite) sfx.eliteSpawn();
+      if (
+        !IS_MOBILE &&
+        diff >= 3 &&
+        Math.random() < 0.28 &&
+        this.runners.length < maxRunners
+      ) {
+        let lane2 = pickRandomLane();
+        for (let t = 0; t < 4 && lane2 === lane; t++) lane2 = pickRandomLane();
+        if (lane2 !== lane) {
+          this.runners.push(createRunner(this.scene, pickRunnerTier(diff), lane2, this.nextRunnerZ + 0.5));
+        }
+      }
+      this.nextRunnerZ += runnerSpacing(diff) + Math.random() * 8;
       runN++;
     }
 
@@ -901,24 +1059,248 @@ export class Game {
     }
   }
 
+  private applyGearSynergies(): void {
+    const turrets = this.save.equippedTurrets;
+    if (turrets.includes('spread-mail') && turrets.includes('pierce-pack')) {
+      this.shootPierce += 1;
+      this.mailGunDamage = Math.floor(this.mailGunDamage * 1.12);
+      this.cb.onToast('⚡ Lane Sweeper — spread pierces!');
+    }
+    if (turrets.includes('homing-stamp') && turrets.includes('pepper-drone')) {
+      this.mailGunRate *= 0.88;
+      this.homingSteerBoost = 1.45;
+      this.cb.onToast('🎯 Stamp Lock — homing fast fire!');
+    }
+  }
+
+  private static gearTrialName(id: TurretId): string {
+    if (id === 'spread-mail') return 'Spread Envelope';
+    if (id === 'pierce-pack') return 'Piercing Post';
+    return 'Tracking Stamps';
+  }
+
+  private startGearTrial(): void {
+    const pool: TurretId[] = ['spread-mail', 'pierce-pack', 'homing-stamp'];
+    const missing = pool.filter((t) => !this.save.equippedTurrets.includes(t));
+    if (!missing.length) return;
+    const trial = missing[Math.floor(Math.random() * missing.length)];
+    this.gearTrialTurret = trial;
+    this.gearTrialTimer = 45;
+    if (trial === 'spread-mail') this.shootSpread = true;
+    if (trial === 'pierce-pack') this.shootPierce = Math.max(this.shootPierce, 2);
+    if (trial === 'homing-stamp') this.shootHoming = true;
+    this.cb.onToast(`🎁 Trial: ${Game.gearTrialName(trial)}!`);
+  }
+
+  private endGearTrial(): void {
+    this.shootSpread = this.baseShootSpread;
+    this.shootPierce = this.baseShootPierce;
+    this.shootHoming = this.baseShootHoming;
+    const turrets = this.save.equippedTurrets;
+    if (turrets.includes('spread-mail') && turrets.includes('pierce-pack')) {
+      this.shootPierce += 1;
+    }
+    this.homingSteerBoost =
+      turrets.includes('homing-stamp') && turrets.includes('pepper-drone') ? 1.45 : 1;
+    this.gearTrialTurret = null;
+  }
+
+  private onRunnerKill(r: RunnerEntity, headshot: boolean): void {
+    this.comboTimer = 3.2;
+    this.comboCount++;
+    const comboMul = 1 + (this.comboCount - 1) * 0.12;
+    let coins = (r.tier === 'stalker' ? 15 : r.tier === 'raider' ? 10 : 5) * comboMul;
+    if (r.elite) coins += 25;
+    if (r.isBoss) coins += 50;
+    if (headshot) coins *= 1.5;
+    this.run.coins += Math.floor(coins);
+    this.addSpecialCharge(0.14 + this.comboCount * 0.035);
+    this.spectacle.bumpCombat(r.isBoss ? 0.25 : r.elite ? 0.15 : 0.1);
+    sfx.alienKill();
+    if (headshot) sfx.headshot();
+    if (this.comboCount >= 2) sfx.combo(this.comboCount);
+    if (this.comboCount >= 5 && !this.comboStingerPlayed) {
+      this.comboStingerPlayed = true;
+      sfx.comboStinger();
+    }
+    if (this.comboCount <= 1) this.comboStingerPlayed = false;
+    this.particles.hitBurst(r.x, r.z);
+    if (r.elite && !r.isBoss) {
+      this.coins.push(...createCoinLine(this.scene, r.z, IS_MOBILE ? 5 : 8, 4));
+      this.packagePickups.push(spawnGoldenMail(this.scene, r.x, r.z));
+    }
+    if (r.isBoss) {
+      this.startGearTrial();
+      this.powerUps.push(createPowerUp(this.scene, randomPowerUpKind(), 0, r.z));
+      this.cb.onToast('💥 Boss down — deliver the mail!');
+    }
+  }
+
+  private updateSpectacle(dt: number): void {
+    const ev = this.spectacle.update(dt, {
+      playerZ: this.player.z,
+      comboCount: this.comboCount,
+      runnerCount: this.runners.filter((r) => r.alive).length,
+      night: this.world.getSkyNight(),
+    });
+    if (ev) {
+      this.cb.onToast(ev.message);
+      this.world.playSpectacle(ev.kind, this.player.z);
+      this.shake.shake(ev.pulse * 0.14);
+      sfx.spectacle(ev.kind);
+      if (ev.kind === 'energy-surge') {
+        this.world.setBlackout(0.35);
+        this.blackoutTimer = Math.max(this.blackoutTimer, 2.5);
+      }
+    }
+    sfx.setCombatIntensity(this.spectacle.getCombatIntensity());
+  }
+
+  private updateUfoHazard(dt: number): void {
+    const night = this.world.getSkyNight();
+    if (night <= 0.4) {
+      if (this.ufoHazard?.active) this.ufoHazard.end();
+      return;
+    }
+    if (!this.ufoHazard) this.ufoHazard = new UfoSpotlightHazard(this.scene);
+
+    if (!this.ufoHazard.active && this.player.z >= this.nextUfoHazardZ) {
+      this.nextUfoHazardZ += 155 + Math.random() * 70;
+      this.ufoHazard.start(this.player.x, this.player.z);
+      this.cb.onToast('🛸 UFO overhead — dodge the beam!');
+      sfx.ufoBeam();
+    }
+    if (!this.ufoHazard.active) return;
+
+    this.ufoHazard.update(dt, this.gameTime, this.player.z);
+
+    const dodging =
+      this.player.jumpY > 0.4 ||
+      this.player.isSliding ||
+      this.dashActive ||
+      this.invincibleTimer > 0;
+
+    if (this.ufoHazard.tickExposure(dt, this.player.x, this.player.z, dodging)) {
+      if (!this.isProtected()) {
+        this.takeHit('obstacle');
+        this.cb.onToast('👽 Caught in the beam!');
+        this.ufoHazard.end();
+      }
+    }
+  }
+
+  private updateMiniEvents(): void {
+    if (this.player.z < this.nextMiniEventZ) return;
+    this.nextMiniEventZ += 200 + Math.random() * 50;
+    const d = this.level.district;
+    const roll = Math.random();
+
+    const ufo = (): void => {
+      this.cb.onToast('🛸 UFO convoy — coin shower!');
+      this.coins.push(...createCoinLine(this.scene, this.player.z + 45, IS_MOBILE ? 6 : 10, 5));
+    };
+    const escort = (): void => {
+      this.cb.onToast('📬 Escort convoy rolling!');
+      this.convoy.reactTurbo();
+      sfx.honk();
+    };
+    const blackout = (): void => {
+      this.cb.onToast('🌑 Blackout zone — eyes up!');
+      this.world.setBlackout(0.58);
+      this.blackoutTimer = 9;
+    };
+
+    if (d === 3) {
+      if (roll < 0.55) ufo();
+      else if (roll < 0.82) escort();
+      else blackout();
+    } else if (d === 5 || d === 7) {
+      if (roll < 0.48) blackout();
+      else if (roll < 0.74) escort();
+      else ufo();
+    } else if (d >= 6) {
+      if (roll < 0.38) blackout();
+      else if (roll < 0.68) ufo();
+      else escort();
+    } else if (roll < 0.34) {
+      ufo();
+    } else if (roll < 0.67) {
+      escort();
+    } else {
+      blackout();
+    }
+  }
+
+  private maybeSpawnBoss(): void {
+    if (this.bossSpawned || !this.dropoff) return;
+    if (!this.level.name.includes('Boss')) return;
+    if (this.player.z < this.dropoff.z - 95) return;
+    this.bossSpawned = true;
+    this.runners.push(createRunner(this.scene, 'stalker', 0, this.dropoff.z - 8, { boss: true }));
+    sfx.eliteSpawn();
+    this.cb.onToast('👾 BOSS ALIEN guards the drop-off!');
+  }
+
+  private checkNearMisses(): void {
+    for (const obs of this.obstacles) {
+      if (obs.hit) continue;
+      const dz = this.player.z - obs.z;
+      if (dz < 0.8 || dz > 2.2) continue;
+      const dx = Math.abs(this.player.x - obs.x);
+      const edgeLo = obs.radius - 0.05;
+      const edgeHi = obs.radius + 0.45;
+      if (dx >= edgeLo && dx <= edgeHi) {
+        if (this.player.isJumping || this.player.isSliding || this.dashActive) {
+          if (!obs.mesh.userData.styleAwarded) {
+            obs.mesh.userData.styleAwarded = true;
+            this.run.coins += 5;
+            sfx.nearMiss();
+            this.convoy.reactTurbo();
+            this.styleStreak++;
+            this.styleStreakTimer = 4;
+            if (this.styleStreak >= 3) {
+              this.styleStreak = 0;
+              this.magnetTimer = 5;
+              this.cb.onToast('🔗 STYLE MAGNET!');
+              sfx.honk();
+            } else if (this.styleStreak === 2) {
+              this.cb.onToast('✨ Style ×2 — one more!');
+            } else {
+              this.cb.onToast('✨ STYLE +5');
+            }
+          }
+        }
+      }
+    }
+  }
+
   private checkThrowHits(): void {
     for (const t of this.throws) {
+      if (t.life <= 0) continue;
       const tz = t.mesh.position.z;
+      const py = t.mesh.position.y;
       for (const r of this.runners) {
         if (!r.alive) continue;
         if (Math.abs(r.z - tz) > 2.5) continue;
         const dx = t.mesh.position.x - r.x;
         const dz = t.mesh.position.z - r.z;
-        if (dx * dx + dz * dz < 1.8) {
-          r.hp -= t.damage;
-          this.particles.hitBurst(t.mesh.position.x, t.mesh.position.z);
+        if (dx * dx + dz * dz >= 1.85) continue;
+
+        const headshot = isHeadshot(py, r);
+        const dmg = headshot ? t.damage * 2 : t.damage;
+        r.hp -= dmg;
+        sfx.alienHit();
+        this.particles.alienHit(t.mesh.position.x, t.mesh.position.y, t.mesh.position.z, headshot);
+        this.spectacle.bumpCombat(headshot ? 0.12 : 0.06);
+        if (t.pierceLeft > 0) {
+          t.pierceLeft--;
+        } else {
           t.life = 0;
-          if (r.hp <= 0) {
-            this.run.coins += r.tier === 'stalker' ? 15 : r.tier === 'raider' ? 10 : 5;
-            this.addSpecialCharge(0.2);
-            disposeRunner(r, this.scene);
-            this.runners = this.runners.filter((x) => x !== r);
-          }
+        }
+        if (r.hp <= 0) {
+          this.onRunnerKill(r, headshot);
+          disposeRunner(r, this.scene);
+          this.runners = this.runners.filter((x) => x !== r);
         }
       }
     }
@@ -1031,6 +1413,7 @@ export class Game {
 
       this.run.coins += 8;
       this.particles.gateBurst(choice === 'left' ? 3 : -3, gate.z, '#00E676');
+      sfx.gatePass();
     }
   }
 
@@ -1072,21 +1455,27 @@ export class Game {
 
       if (!v.penalized && atBarrier && (wrongAction || !cleared)) {
         v.penalized = true;
+        sfx.vaultBuzz();
         this.takeVaultMiss();
       }
 
       if (this.player.z > v.z + gateDepth - 0.35) {
         v.resolved = true;
-        if (cleared && !v.penalized) this.run.coins += 4;
+        if (cleared && !v.penalized) {
+          this.run.coins += 4;
+          sfx.vaultBuzz();
+        }
       }
     }
   }
 
   private checkDropoff(): void {
     if (!this.dropoff || this.dropoff.reached) return;
+    if (this.runners.some((r) => r.alive && r.isBoss)) return;
     if (this.player.z >= this.dropoff.z - 3) {
       this.dropoff.reached = true;
       this.particles.gateBurst(0, this.dropoff.z, '#FFD54F');
+      sfx.delivery();
       this.endGame(true);
     }
   }
@@ -1113,12 +1502,13 @@ export class Game {
     let stars = 0;
     if (won) {
       stars = 1;
-      if (!this.run.integrityLost) stars = 2;
-      if (!this.run.integrityLost && this.run.coins >= 50) stars = 3;
+      if (!this.run.integrityLost && this.run.packages >= 6) stars = 2;
+      if (!this.run.integrityLost && this.run.packages >= 12 && this.run.coins >= 40) stars = 3;
     }
 
+    const packageBonus = won ? this.run.packages * 3 : 0;
     const coinBonus = won ? 25 + stars * 20 : Math.floor(this.run.coins * 0.3);
-    const totalCoins = this.run.coins + (won ? coinBonus : 0);
+    const totalCoins = this.run.coins + (won ? coinBonus + packageBonus : 0);
 
     const reasons: Record<DeathReason, string> = {
       stolen: 'Crashed into a hazard!',
@@ -1140,14 +1530,21 @@ export class Game {
 
   private render(): void {
     if (ENABLE_TONE_MAPPING) {
-      const night = this.world.getSkyNight();
-      const base = IS_MOBILE ? 1.08 : 1.22;
-      this.renderer.toneMappingExposure = base * (1 - night * 0.22);
+      const nightFx = this.world.getNightFx();
+      const vis = this.world.getGameplayNight();
+      const base = IS_MOBILE ? 0.96 : 1.06;
+      this.renderer.toneMappingExposure = base * (1 - nightFx * 0.08) + vis * 0.1;
     }
     if (this.pipeline) {
-      const night = this.world.getSkyNight();
-      const bloom = (IS_MOBILE ? 0.32 : 0.36) + night * (IS_MOBILE ? 0.18 : 0.24);
+      const nightFx = this.world.getNightFx();
+      const combat = this.spectacle.getCombatIntensity();
+      const pulse = this.spectacle.getPostPulse() + this.shootPulse * 0.35;
+      const bloom =
+        (IS_MOBILE ? 0.22 : 0.24) +
+        nightFx * (IS_MOBILE ? 0.2 : 0.28) +
+        combat * (IS_MOBILE ? 0.08 : 0.12);
       this.pipeline.setBloomStrength(bloom);
+      this.pipeline.setGradePulse(pulse);
       this.pipeline.render();
     } else {
       this.renderer.render(this.scene, this.camera);
@@ -1223,6 +1620,10 @@ export class Game {
     this.obstacles = [];
     if (this.player) this.player.dispose(this.scene);
     if (this.convoy) this.convoy.dispose();
+    if (this.ufoHazard) {
+      this.ufoHazard.dispose();
+      this.ufoHazard = null;
+    }
   }
 
   dispose(): void {

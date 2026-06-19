@@ -23,7 +23,12 @@ export class Player {
   private shadow: THREE.Mesh;
   private speedTrails: THREE.Mesh[] = [];
   private trailPhase = 0;
-
+  private nightLevel = 0;
+  private footLight: THREE.Mesh;
+  private playerLight: THREE.PointLight;
+  private headLight: THREE.PointLight;
+  private mailGunMuzzle: THREE.Mesh;
+  private visorMesh: THREE.Mesh | null = null;
   private body: THREE.Group;
   private leftLeg: THREE.Group;
   private rightLeg: THREE.Group;
@@ -47,6 +52,22 @@ export class Player {
     this.packageOrb = built.packageOrb;
     this.hoverboard = built.hoverboard;
     this.backpack = built.backpack;
+    this.mailGunMuzzle = built.mailGunMuzzle;
+
+    this.mailGunMuzzle.userData.baseEmissiveIntensity = (
+      this.mailGunMuzzle.material as THREE.MeshStandardMaterial
+    ).emissiveIntensity;
+
+    this.body.traverse((c) => {
+      if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
+        if (c.material.emissive && c.material.emissive.getHex() > 0 && c !== this.mailGunMuzzle) {
+          c.userData.baseEmissiveIntensity = c.material.emissiveIntensity;
+        }
+        if (c.material.transparent && c.material.opacity < 1 && c.position.y > 1.45) {
+          this.visorMesh = c;
+        }
+      }
+    });
 
     this.shadow = addMesh(
       scene,
@@ -82,10 +103,35 @@ export class Player {
       this.speedTrails.push(trail);
     }
 
+    this.footLight = addMesh(
+      scene,
+      new THREE.CircleGeometry(0.22, 10),
+      new THREE.MeshBasicMaterial({
+        color: '#B0BEC5',
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      0,
+      0.035,
+      0,
+      false
+    );
+    this.footLight.rotation.x = -Math.PI / 2;
+
+    this.playerLight = new THREE.PointLight('#FFF8E1', 0, 9, 1.35);
+    this.playerLight.position.set(0, 1.15, 0.35);
+    this.mesh.add(this.playerLight);
+
+    this.headLight = new THREE.PointLight('#E1F5FE', 0, 16, 1.15);
+    this.headLight.position.set(0, 1.6, 2.8);
+    this.mesh.add(this.headLight);
+
     scene.add(this.mesh);
   }
 
-  update(dt: number, roadHalfWidth: number, moving: boolean, speed = 12): void {
+  update(dt: number, roadHalfWidth: number, moving: boolean, speed = 12, night = 0): void {
     const steerSpeed = 9;
     this.x += (this.targetX - this.x) * Math.min(1, steerSpeed * dt);
     this.x = THREE.MathUtils.clamp(this.x, -roadHalfWidth, roadHalfWidth);
@@ -114,6 +160,9 @@ export class Player {
     const shadowScale = 1 - Math.min(0.45, this.jumpY * 0.12);
     this.shadow.scale.set(shadowScale, shadowScale, 1);
     (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.18 + shadowScale * 0.14;
+
+    this.nightLevel = night;
+    this.updateNightGear(moving);
 
     const fast = moving && speed > 13 && !this.isJumping;
     if (fast) this.trailPhase += dt * (speed * 0.8);
@@ -181,6 +230,45 @@ export class Player {
     }
   }
 
+  private updateNightGear(moving: boolean): void {
+    const fx = this.nightLevel;
+
+    this.playerLight.intensity = fx * (IS_MOBILE ? 3.2 : 4.4);
+    this.playerLight.color.set(fx > 0.5 ? '#E1F5FE' : '#FFF8E1');
+
+    this.headLight.intensity = fx * (IS_MOBILE ? 2.4 : 3.6);
+    this.headLight.color.set('#B3E5FC');
+
+    const fl = this.footLight.material as THREE.MeshBasicMaterial;
+    fl.opacity = fx * 0.22;
+    this.footLight.position.set(this.x, 0.035, this.z);
+    this.footLight.visible = fx > 0.04;
+
+    const muzzle = this.mailGunMuzzle.material as THREE.MeshStandardMaterial;
+    const base = (this.mailGunMuzzle.userData.baseEmissiveIntensity as number) ?? 0.65;
+    muzzle.emissiveIntensity = base + fx * 0.55 + (moving ? 0.14 : 0);
+
+    if (this.visorMesh?.material instanceof THREE.MeshStandardMaterial) {
+      const vm = this.visorMesh.material;
+      const vBase = (this.visorMesh.userData.baseEmissiveIntensity as number) ?? 0.55;
+      vm.emissiveIntensity = vBase + fx * 0.45;
+    }
+
+    this.body.traverse((c) => {
+      if (!(c instanceof THREE.Mesh) || !(c.material instanceof THREE.MeshStandardMaterial)) return;
+      if (c === this.mailGunMuzzle || c === this.visorMesh) return;
+      const baseE = c.userData.baseEmissiveIntensity as number | undefined;
+      if (baseE !== undefined) {
+        c.material.emissiveIntensity = baseE + fx * 0.35;
+        return;
+      }
+      if (fx > 0.08 && !c.material.transparent) {
+        c.material.emissive.set('#FFF3E0');
+        c.material.emissiveIntensity = fx * 0.18;
+      }
+    });
+  }
+
   knockback(fromX: number, force = 1.2): void {
     this.targetX += this.x >= fromX ? force : -force;
   }
@@ -229,9 +317,12 @@ export class Player {
   }
 
   mailGunAnim(): void {
-    this.leftArm.rotation.x = -0.8;
+    this.rightArm.rotation.x = -0.85;
+    const mm = this.mailGunMuzzle.material as THREE.MeshStandardMaterial;
+    mm.emissiveIntensity = 1.4;
     setTimeout(() => {
-      this.leftArm.rotation.x = 0;
+      this.rightArm.rotation.x = 0;
+      this.updateNightGear(true);
     }, 120);
   }
 
@@ -246,6 +337,7 @@ export class Player {
   dispose(scene: THREE.Scene): void {
     scene.remove(this.mesh);
     scene.remove(this.shadow);
+    scene.remove(this.footLight);
     for (const t of this.speedTrails) {
       scene.remove(t);
       t.geometry.dispose();
@@ -255,5 +347,7 @@ export class Player {
     disposeObject3D(this.mesh);
     this.shadow.geometry.dispose();
     (this.shadow.material as THREE.Material).dispose();
+    this.footLight.geometry.dispose();
+    (this.footLight.material as THREE.Material).dispose();
   }
 }

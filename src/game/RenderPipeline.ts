@@ -3,10 +3,12 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { BLOOM_RES_SCALE, IS_MOBILE } from './platform';
+import { ArcadePostPass } from './ArcadePostPass';
 
 export class RenderPipeline {
   private composer: EffectComposer;
   private bloomPass: UnrealBloomPass;
+  private gradePass: ArcadePostPass;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -23,6 +25,10 @@ export class RenderPipeline {
       IS_MOBILE ? 0.85 : 0.78
     );
     this.composer.addPass(this.bloomPass);
+
+    this.gradePass = new ArcadePostPass();
+    this.gradePass.renderToScreen = true;
+    this.composer.addPass(this.gradePass);
   }
 
   setSize(width: number, height: number): void {
@@ -36,11 +42,16 @@ export class RenderPipeline {
     this.bloomPass.strength = strength;
   }
 
+  setGradePulse(pulse: number): void {
+    this.gradePass.setPulse(pulse);
+  }
+
   render(): void {
     this.composer.render();
   }
 
   dispose(): void {
+    this.gradePass.dispose();
     this.composer.dispose();
   }
 }

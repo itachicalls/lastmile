@@ -106,6 +106,17 @@ export class ParticleSystem {
     this.sparkStreak(x, 1, z, '#FF1744', 4);
   }
 
+  alienHit(x: number, y: number, z: number, headshot = false): void {
+    const color = headshot ? '#EA80FC' : '#76FF03';
+    this.burst(x, y, z, color, IS_MOBILE ? 6 : 10, headshot ? 6.5 : 4.5);
+    this.sparkStreak(x, y, z, headshot ? '#E040FB' : '#B2FF59', headshot ? 5 : 3);
+  }
+
+  muzzleFlash(x: number, y: number, z: number): void {
+    this.burst(x, y, z, '#00E5FF', IS_MOBILE ? 4 : 6, 3.5);
+    this.sparkStreak(x, y, z, '#FFF59D', IS_MOBILE ? 2 : 4);
+  }
+
   gateBurst(x: number, z: number, color: string): void {
     this.burst(x, 2, z, color, IS_MOBILE ? 12 : 18, 6.5);
     this.sparkStreak(x, 2.2, z, color, IS_MOBILE ? 2 : 5);

@@ -334,8 +334,9 @@ export function randomPowerUpKind(): PowerUpKind {
   if (roll < 0.08) return 'health';
   if (roll < 0.15) return 'turbo';
   if (roll < 0.22) return 'blur';
-  const good: PowerUpKind[] = ['slowmo', 'fastshot', 'invincible'];
-  return good[Math.floor(Math.random() * good.length)];
+  if (roll < 0.28) return 'slowmo';
+  if (roll < 0.64) return 'fastshot';
+  return 'invincible';
 }
 
 export function disposePowerUps(pickups: PowerUpEntity[], scene: THREE.Scene): void {

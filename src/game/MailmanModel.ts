@@ -15,6 +15,8 @@ export type MailmanMesh = {
   packageOrb: THREE.Group;
   hoverboard: THREE.Group;
   backpack: THREE.Group;
+  mailGun: THREE.Group;
+  mailGunMuzzle: THREE.Mesh;
 };
 
 function buildLeg(x: number, pants: THREE.Material, boot: THREE.Material): THREE.Group {
@@ -81,6 +83,51 @@ function buildBackpack(body: THREE.Group, character: CharacterDef): { pack: THRE
   return { pack, vipPouch: carried.core, vipGlow: carried.outerGlow, packageOrb: carried.group };
 }
 
+/** Postal mail blaster — envelope hopper + barrel, not a flashlight cone. */
+function buildMailBlaster(): { gun: THREE.Group; muzzle: THREE.Mesh } {
+  const gun = new THREE.Group();
+  const metal = mat('#607D8B', { metalness: 0.78, roughness: 0.28 });
+  const dark = mat('#37474F', { metalness: 0.82, roughness: 0.22 });
+  const stamp = mat('#FF9800', { emissive: '#FF9800', emissiveIntensity: 0.3 });
+
+  addMesh(gun, new THREE.BoxGeometry(0.07, 0.15, 0.08), dark, 0, -0.07, 0.01);
+  addMesh(gun, new THREE.BoxGeometry(0.05, 0.04, 0.05), mat('#263238', { roughness: 0.9 }), 0.04, -0.1, 0.02);
+
+  addMesh(gun, new THREE.BoxGeometry(0.12, 0.12, 0.28), metal, 0, 0.02, 0.1);
+  addMesh(gun, new THREE.BoxGeometry(0.1, 0.035, 0.2), mat('#FFF8E1', { roughness: 0.7 }), 0, 0.09, 0.08);
+  addMesh(gun, new THREE.BoxGeometry(0.08, 0.006, 0.16), stamp, 0, 0.115, 0.08);
+
+  for (const sx of [-0.035, 0.035]) {
+    addMesh(gun, new THREE.BoxGeometry(0.012, 0.05, 0.14), dark, sx, 0.02, 0.1);
+  }
+
+  addMesh(gun, new THREE.CylinderGeometry(0.038, 0.044, 0.2, 8), dark, 0, 0.02, 0.32);
+  addMesh(gun, new THREE.CylinderGeometry(0.032, 0.038, 0.08, 8), metal, 0, 0.02, 0.44);
+
+  const muzzle = addMesh(
+    gun,
+    new THREE.TorusGeometry(0.048, 0.01, 6, 12),
+    mat('#00E5FF', { emissive: '#00E5FF', emissiveIntensity: 0.65 }),
+    0,
+    0.02,
+    0.5
+  );
+  muzzle.userData.isMailMuzzle = true;
+
+  addMesh(
+    gun,
+    new THREE.BoxGeometry(0.018, 0.03, 0.05),
+    mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.7 }),
+    0,
+    0.1,
+    0.22
+  );
+  addMesh(gun, new THREE.BoxGeometry(0.04, 0.025, 0.06), mat('#455A64', { metalness: 0.6 }), 0, 0.1, 0.14);
+
+  gun.rotation.set(-0.2, -0.15, 0.05);
+  return { gun, muzzle };
+}
+
 export function createMailmanMesh(character: CharacterDef): MailmanMesh {
   const mesh = new THREE.Group();
   const body = new THREE.Group();
@@ -130,12 +177,9 @@ export function createMailmanMesh(character: CharacterDef): MailmanMesh {
 
   const { pack, vipPouch, vipGlow, packageOrb } = buildBackpack(body, character);
 
-  const scanGun = new THREE.Group();
-  scanGun.position.set(0.42, 0.94, 0.16);
-  addMesh(scanGun, new THREE.BoxGeometry(0.09, 0.12, 0.36), mat('#546E7A', { metalness: 0.72 }), 0, 0, 0.1);
-  addMesh(scanGun, new THREE.CylinderGeometry(0.04, 0.05, 0.08, 8), mat('#37474F', { metalness: 0.8 }), 0, 0, 0.32);
-  addMesh(scanGun, new THREE.BoxGeometry(0.05, 0.05, 0.06), mat('#00E676', { emissive: '#00E676', emissiveIntensity: 1.1 }), 0, 0, 0.36);
-  body.add(scanGun);
+  const { gun: mailGun, muzzle: mailGunMuzzle } = buildMailBlaster();
+  mailGun.position.set(0.08, -0.4, 0.1);
+  rightArm.add(mailGun);
 
   body.position.y = 0.28;
   mesh.add(body);
@@ -152,5 +196,7 @@ export function createMailmanMesh(character: CharacterDef): MailmanMesh {
     packageOrb,
     hoverboard,
     backpack: pack,
+    mailGun,
+    mailGunMuzzle,
   };
 }
