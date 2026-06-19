@@ -488,7 +488,6 @@ export class UIManager {
           setTimeout(() => f.classList.add('hidden'), 400);
         }
       },
-      onBossCleared: () => this.showBossClearedOverlay(),
       onEnd: (result) => this.onGameEnd(result),
     });
 
@@ -683,24 +682,6 @@ export class UIManager {
     setTimeout(() => t.remove(), 2200);
   }
 
-  private showBossClearedOverlay(): void {
-    const overlay = this.el(`
-      <div class="boss-cleared-overlay">
-        <div class="boss-cleared-card">
-          <div class="boss-cleared-icon">👾</div>
-          <div class="boss-cleared-title">BOSS CLEARED!</div>
-          <p class="boss-cleared-sub">Reach the drop zone to deliver.</p>
-        </div>
-      </div>
-    `);
-    this.root.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('visible'));
-    setTimeout(() => {
-      overlay.classList.remove('visible');
-      setTimeout(() => overlay.remove(), 450);
-    }, 2800);
-  }
-
   private onGameEnd(result: GameResult): void {
     if (result.won) {
       this.save.addCoins(result.coinsEarned);
@@ -725,15 +706,9 @@ export class UIManager {
     const canNext = result.won && next && s.unlockedLevels.includes(next);
 
     const screen = this.wrapScreen(`
-      <div class="screen results-screen screen-glass ${result.won ? 'won' : 'lost'} ${result.bossLevel && result.won ? 'boss-win' : ''}">
-        <div class="results-icon">${result.won ? (result.bossLevel && result.bossCleared ? '👾' : '📦') : '💀'}</div>
-        <div class="results-title">${
-          result.won
-            ? result.bossLevel && result.bossCleared
-              ? 'Boss Cleared — Delivered!'
-              : 'Delivered!'
-            : 'Mission Failed'
-        }</div>
+      <div class="screen results-screen screen-glass ${result.won ? 'won' : 'lost'}">
+        <div class="results-icon">${result.won ? '📦' : '💀'}</div>
+        <div class="results-title">${result.won ? 'Delivered!' : 'Mission Failed'}</div>
         ${result.deathReason ? `<p class="death-reason">${result.deathReason}</p>` : ''}
         <div class="stars-display">${'★'.repeat(result.stars)}${'☆'.repeat(3 - result.stars)}</div>
         <div class="results-reward">+${result.coinsEarned} 🪙 · ${result.time.toFixed(1)}s</div>

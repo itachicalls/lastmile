@@ -46,7 +46,7 @@ export const LEVELS: LevelDef[] = [
     { z: 650, safe: 'right' },
     { z: 850, safe: 'left' },
   ], 5, 240),
-  level('1-5', 1, 'Boss: HOA Alien', 'Giant alien at the depot — dodge blasts, beat the boss, then deliver!', 1050, [
+  level('1-5', 1, 'Boss: HOA Alien', 'Longer route — extra aliens and hazards. Deliver!', 1050, [
     { z: 250, safe: 'left' },
     { z: 520, safe: 'right' },
     { z: 780, safe: 'left' },
@@ -73,7 +73,7 @@ export const LEVELS: LevelDef[] = [
     { z: 700, safe: 'left' },
     { z: 920, safe: 'right' },
   ], 8, 300),
-  level('2-5', 2, 'Boss: Alien Commander', 'Boss arena ahead — shoot the commander and its minions!', 1150, [
+  level('2-5', 2, 'Boss: Alien Commander', 'Tough finale — shoot, dodge, deliver!', 1150, [
     { z: 250, safe: 'left' },
     { z: 550, safe: 'right' },
     { z: 850, safe: 'left' },
@@ -100,7 +100,7 @@ export const LEVELS: LevelDef[] = [
     { z: 540, safe: 'left' },
     { z: 860, safe: 'right' },
   ], 9, 320),
-  level('3-5', 3, 'Boss: Dune Warlord', 'The warlord blocks the depot — clear it to deliver.', 1200, [
+  level('3-5', 3, 'Boss: Dune Warlord', 'Hardest desert run — reach the depot!', 1200, [
     { z: 260, safe: 'left' },
     { z: 560, safe: 'right' },
     { z: 880, safe: 'left' },
@@ -127,7 +127,7 @@ export const LEVELS: LevelDef[] = [
     { z: 550, safe: 'right' },
     { z: 870, safe: 'left' },
   ], 11, 350),
-  level('4-5', 4, 'Boss: Jungle Overlord', 'Defeat the overlord, then sprint to the drop zone!', 1250, [
+  level('4-5', 4, 'Boss: Jungle Overlord', 'Jungle gauntlet — deliver at the depot!', 1250, [
     { z: 270, safe: 'right' },
     { z: 580, safe: 'left' },
     { z: 900, safe: 'right' },

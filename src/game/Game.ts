@@ -74,15 +74,6 @@ import {
 import { ParticleSystem, CameraShake } from './Effects';
 import { RenderPipeline } from './RenderPipeline';
 import { SpectacleDirector, type SpectacleKind } from './SpectacleDirector';
-import {
-  createBossFight,
-  updateBossFight,
-  bossProjectileHitsPlayer,
-  damageBoss,
-  bossHitRadius,
-  disposeBossFight,
-  type BossFightEntity,
-} from './BossFight';
 import { getPixelRatio, IS_MOBILE, isNearZ, ENABLE_SHADOWS, ENABLE_ANTIALIAS, ENABLE_TONE_MAPPING, ENABLE_BLOOM } from './platform';
 import { getViewportMetrics, onViewportChange, applyMobileViewportLock } from './viewport';
 import { getCharacter } from '../data/characters';
@@ -96,7 +87,6 @@ export type GameCallbacks = {
   onToast: (msg: string) => void;
   onCombat: (active: boolean) => void;
   onDamageFlash: () => void;
-  onBossCleared: () => void;
   onEnd: (result: GameResult) => void;
 };
 
@@ -211,9 +201,6 @@ export class Game {
   private nextUfoHazardZ = 130;
   private ufoHazard: UfoSpotlightHazard | null = null;
   private blackoutTimer = 0;
-  private bossSpawned = false;
-  private bossFight: BossFightEntity | null = null;
-  private bossCleared = false;
   private shootSpread = false;
   private shootPierce = 0;
   private shootHoming = false;
@@ -426,13 +413,6 @@ export class Game {
       this.ufoHazard = null;
     }
     this.blackoutTimer = 0;
-    this.bossSpawned = false;
-    this.bossCleared = false;
-    if (this.bossFight) {
-      disposeBossFight(this.bossFight, this.scene);
-      this.bossFight = null;
-    }
-    sfx.endBossMusic();
     this.world.setBlackout(0);
     this.pickupRadius = 2.2 + (this.save.purchases['coin-magnet'] ?? 0) * 0.4;
     this.spectacle.reset();
@@ -780,8 +760,6 @@ export class Game {
     this.updateMiniEvents();
     this.updateSpectacle(dt);
     this.updateUfoHazard(dt);
-    this.maybeSpawnBoss();
-    this.updateBossFight(scaledDt);
     this.cullBehind();
 
     const pz = this.player.z;
@@ -864,7 +842,6 @@ export class Game {
     this.checkObstacles();
     this.checkNearMisses();
     this.checkBoostPads();
-    this.checkBossProjectiles();
     this.checkRunners();
     this.checkRouteGates();
     this.checkDropoff();
@@ -955,6 +932,7 @@ export class Game {
     const spawnAhead = IS_MOBILE ? 72 : 92;
     const ahead = this.player.z + spawnAhead;
     const maxPerFrame = 1;
+    const horizon = this.spawnHorizon;
 
     const maxBars = IS_MOBILE ? 5 : 8;
     const maxObstacles = IS_MOBILE ? 4 : 6;
@@ -962,7 +940,7 @@ export class Game {
     const maxPowerUps = IS_MOBILE ? 6 : 10;
 
     let barN = 0;
-    while (this.nextBarZ < ahead && this.nextBarZ < this.spawnHorizon && barN < maxPerFrame) {
+    while (this.nextBarZ < ahead && this.nextBarZ < horizon && barN < maxPerFrame) {
       const active = this.electricBars.filter((b) => !b.resolved).length;
       if (active >= maxBars) break;
       const spec = pickBarSpawn(diff);
@@ -974,7 +952,7 @@ export class Game {
     }
 
     let obsN = 0;
-    while (this.nextObstacleZ < ahead && this.nextObstacleZ < this.spawnHorizon && obsN < maxPerFrame) {
+    while (this.nextObstacleZ < ahead && this.nextObstacleZ < horizon && obsN < maxPerFrame) {
       if (this.obstacles.filter((o) => !o.hit).length >= maxObstacles) break;
       const lanes = pickObstacleLanes();
       const laneLimit = IS_MOBILE ? 1 : lanes.length;
@@ -988,7 +966,7 @@ export class Game {
     }
 
     let runN = 0;
-    while (this.nextRunnerZ < ahead && this.nextRunnerZ < this.spawnHorizon && runN < maxPerFrame) {
+    while (this.nextRunnerZ < ahead && this.nextRunnerZ < horizon && runN < maxPerFrame) {
       if (this.runners.length >= maxRunners) break;
       const tier = pickRunnerTier(diff);
       const lane = pickRandomLane();
@@ -1011,20 +989,20 @@ export class Game {
       runN++;
     }
 
-    if (this.nextPowerUpZ < ahead && this.nextPowerUpZ < this.spawnHorizon && this.powerUps.length < maxPowerUps) {
+    if (this.nextPowerUpZ < ahead && this.nextPowerUpZ < horizon && this.powerUps.length < maxPowerUps) {
       this.powerUps.push(createPowerUp(this.scene, randomPowerUpKind(), pickRandomLane(), this.nextPowerUpZ));
       this.nextPowerUpZ += powerUpSpacing();
     }
 
     let pkgN = 0;
-    while (this.nextPackageZ < ahead && this.nextPackageZ < this.spawnHorizon && pkgN < maxPerFrame) {
+    while (this.nextPackageZ < ahead && this.nextPackageZ < horizon && pkgN < maxPerFrame) {
       this.packagePickups.push(...createPackagePickups(this.scene, this.nextPackageZ, 1, 0));
       this.nextPackageZ += packageSpacing();
       pkgN++;
     }
 
     let coinN = 0;
-    while (this.nextCoinZ < ahead && this.nextCoinZ < this.spawnHorizon && coinN < maxPerFrame) {
+    while (this.nextCoinZ < ahead && this.nextCoinZ < horizon && coinN < maxPerFrame) {
       const coinCount = IS_MOBILE ? 2 + Math.floor(Math.random() * 2) : 3 + Math.floor(Math.random() * 3);
       this.coins.push(...createCoinLine(this.scene, this.nextCoinZ, coinCount, 3.5));
       this.nextCoinZ += IS_MOBILE ? 28 + Math.random() * 20 : 22 + Math.random() * 18;
@@ -1212,10 +1190,6 @@ export class Game {
     }
   }
 
-  private isBossLevel(): boolean {
-    return this.level.name.includes('Boss');
-  }
-
   private applySpectacleGameplay(kind: SpectacleKind): boolean {
     const ahead = this.player.z + (IS_MOBILE ? 36 : 44);
     const district = this.level.district;
@@ -1349,62 +1323,6 @@ export class Game {
     }
   }
 
-  private maybeSpawnBoss(): void {
-    if (this.bossSpawned || !this.dropoff) return;
-    if (!this.isBossLevel()) return;
-    if (this.player.z < this.dropoff.z - 115) return;
-    this.bossSpawned = true;
-    this.bossFight = createBossFight(this.scene, this.dropoff.z - 52);
-    sfx.startBossMusic();
-    this.shake.shake(0.4);
-    this.spectacle.bumpCombat(0.5);
-    this.cb.onToast('👾 BOSS FIGHT — dodge the blasts!');
-  }
-
-  private updateBossFight(dt: number): void {
-    const boss = this.bossFight;
-    if (!boss) return;
-
-    updateBossFight(
-      boss,
-      this.scene,
-      dt,
-      this.gameTime,
-      this.player.x,
-      this.player.z,
-      () => {
-        const lanes = [-3.2, -1.6, 1.6, 3.2];
-        const count = IS_MOBILE ? 1 : 2;
-        for (let i = 0; i < count; i++) {
-          this.runners.push(
-            createRunner(
-              this.scene,
-              pickRunnerTier(this.level.difficulty),
-              lanes[Math.floor(Math.random() * lanes.length)],
-              boss.z - 6 - i * 4
-            )
-          );
-        }
-      },
-      () => sfx.bossShoot()
-    );
-
-    if (boss.defeated && !this.bossCleared) {
-      this.onBossDefeated();
-    }
-  }
-
-  private onBossDefeated(): void {
-    if (!this.bossFight || this.bossCleared) return;
-    this.bossCleared = true;
-    this.run.coins += 50;
-    sfx.bossDefeated();
-    sfx.endBossMusic();
-    this.shake.shake(0.55);
-    this.particles.burst(this.bossFight.x, 2.5, this.bossFight.z, '#FFD54F', IS_MOBILE ? 24 : 40, 8);
-    this.cb.onBossCleared();
-  }
-
   private checkBoostPads(): void {
     if (!this.running || this.dead) return;
     if (!this.world.tryTriggerBoostPad(this.player.x, this.player.z)) return;
@@ -1422,22 +1340,6 @@ export class Game {
     this.particles.collectBurst(this.player.x, this.player.z);
     this.shootPulse = 0.4;
     this.spectacle.bumpCombat(0.06);
-  }
-
-  private checkBossProjectiles(): void {
-    const boss = this.bossFight;
-    if (!boss || boss.defeated) return;
-    if (
-      bossProjectileHitsPlayer(
-        boss,
-        this.player.x,
-        this.player.z,
-        this.player.jumpY,
-        this.player.isSliding
-      )
-    ) {
-      if (!this.isProtected()) this.takeHit('runner');
-    }
   }
 
   private checkNearMisses(): void {
@@ -1493,23 +1395,6 @@ export class Game {
       if (t.life <= 0) continue;
       const tz = t.mesh.position.z;
       const py = t.mesh.position.y;
-
-      const boss = this.bossFight;
-      if (boss && boss.alive && !boss.defeated && Math.abs(boss.z - tz) <= 3.5) {
-        const bdx = t.mesh.position.x - boss.x;
-        const bdz = t.mesh.position.z - boss.z;
-        const rad = bossHitRadius();
-        if (bdx * bdx + bdz * bdz < rad * rad) {
-          const headshot = py >= 1.6;
-          const dmg = headshot ? t.damage * 2 : t.damage;
-          sfx.alienHit();
-          this.particles.alienHit(t.mesh.position.x, t.mesh.position.y, t.mesh.position.z, headshot);
-          this.spectacle.bumpCombat(headshot ? 0.14 : 0.08);
-          if (t.pierceLeft > 0) t.pierceLeft--;
-          else t.life = 0;
-          if (damageBoss(boss, dmg)) this.onBossDefeated();
-        }
-      }
 
       for (const r of this.runners) {
         if (!r.alive) continue;
@@ -1744,7 +1629,6 @@ export class Game {
 
   private checkDropoff(): void {
     if (!this.dropoff || this.dropoff.reached) return;
-    if (this.bossFight && !this.bossFight.defeated) return;
     if (this.player.z >= this.dropoff.z - 3) {
       this.dropoff.reached = true;
       this.particles.gateBurst(0, this.dropoff.z, '#81D4FA');
@@ -1800,8 +1684,6 @@ export class Game {
       levelId: this.level.id,
       time: this.elapsed,
       deathReason: won ? undefined : reasons[this.deathReason],
-      bossLevel: this.isBossLevel(),
-      bossCleared: this.bossCleared,
     });
   }
 
@@ -1885,10 +1767,6 @@ export class Game {
     disposeCoins(this.coins, this.scene);
     disposePickups(this.packagePickups, this.scene);
     disposePowerUps(this.powerUps, this.scene);
-    if (this.bossFight) {
-      disposeBossFight(this.bossFight, this.scene);
-      this.bossFight = null;
-    }
     this.throws = updateThrows(this.throws, 999, this.scene);
     if (this.dropoff) disposeEntity(this.dropoff.mesh, this.scene);
     this.particles.clear();
