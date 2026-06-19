@@ -16,6 +16,19 @@ type AnimProp = {
   lightPool?: THREE.Mesh;
 };
 
+export type RoadFxInput = {
+  turbo: boolean;
+  speed: number;
+  baseSpeed: number;
+  playerX: number;
+};
+
+type BoostPad = {
+  group: THREE.Group;
+  z: number;
+  flash: number;
+};
+
 export class World {
   scene: THREE.Scene;
   private rootMeshes: THREE.Object3D[] = [];
@@ -25,7 +38,15 @@ export class World {
   private roadGlowTex: THREE.CanvasTexture | null = null;
   private roadMesh: THREE.Mesh | null = null;
   private roadGlowMesh: THREE.Mesh | null = null;
+  private roadStreakTex: THREE.CanvasTexture | null = null;
+  private roadStreakMesh: THREE.Mesh | null = null;
+  private roadRainTex: THREE.CanvasTexture | null = null;
+  private roadRainMesh: THREE.Mesh | null = null;
+  private boostPads: BoostPad[] = [];
   private roadAccent = { primary: '#FFE082', secondary: '#FFF8E1', edge: '#FFFFFF' };
+  private roadFx: RoadFxInput = { turbo: false, speed: 16, baseSpeed: 16, playerX: 0 };
+  private wetFactor = 0;
+  private districtId = 1;
   private lightPoolTexture: THREE.CanvasTexture | null = null;
   private skyTexture: THREE.CanvasTexture | null = null;
   private skyCanvas: HTMLCanvasElement | null = null;
@@ -52,6 +73,7 @@ export class World {
     this.clear();
 
     this.skyTheme = theme;
+    this.districtId = theme.id;
     this.setupLighting(theme, levelLength);
     this.buildSky(theme);
     const fogDensity = (IS_MOBILE ? 0.016 : 0.011) * (200 / theme.fogFar);
@@ -153,6 +175,54 @@ export class World {
     roadGlow.userData.isTerrain = true;
     this.roadGlowMesh = roadGlow;
     this.rootMeshes.push(roadGlow);
+
+    const streakTex = this.getRoadStreakTexture();
+    const roadStreak = addMesh(
+      this.scene,
+      new THREE.PlaneGeometry(9.5, levelLength + 140),
+      new THREE.MeshBasicMaterial({
+        map: streakTex,
+        color: this.roadAccent.secondary,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      0,
+      0.033,
+      levelLength / 2,
+      false
+    );
+    roadStreak.rotation.x = -Math.PI / 2;
+    roadStreak.userData.isTerrain = true;
+    this.roadStreakTex = streakTex;
+    this.roadStreakMesh = roadStreak;
+    this.rootMeshes.push(roadStreak);
+
+    const rainTex = this.getRoadRainTexture();
+    const roadRain = addMesh(
+      this.scene,
+      new THREE.PlaneGeometry(9.8, levelLength + 140),
+      new THREE.MeshBasicMaterial({
+        map: rainTex,
+        color: '#B3E5FC',
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      0,
+      0.034,
+      levelLength / 2,
+      false
+    );
+    roadRain.rotation.x = -Math.PI / 2;
+    roadRain.userData.isTerrain = true;
+    this.roadRainTex = rainTex;
+    this.roadRainMesh = roadRain;
+    this.rootMeshes.push(roadRain);
+
+    this.placeBoostPads(theme, levelLength);
 
     const curbTex = this.makeCurbTexture();
     curbTex.wrapS = curbTex.wrapT = THREE.RepeatWrapping;
@@ -577,6 +647,286 @@ export class World {
     return { primary: '#FFE082', secondary: '#FFF59D', edge: '#FFFFFF' };
   }
 
+  private rainWetForDistrict(theme: DistrictTheme, night: number): number {
+    if (theme.id === 5) return Math.min(1, 0.6 + night * 0.4);
+    if (theme.id === 4) return Math.min(1, 0.38 + night * 0.55);
+    if (theme.id === 3) return Math.min(1, 0.06 + night * 0.12);
+    if (theme.id >= 6) return Math.min(1, 0.22 + night * 0.5);
+    return Math.min(1, night * 0.58);
+  }
+
+  private drawDistrictRoadSurface(
+    ctx: CanvasRenderingContext2D,
+    em: CanvasRenderingContext2D,
+    glow: CanvasRenderingContext2D,
+    theme: DistrictTheme,
+    size: number,
+    accent: { primary: string; secondary: string; edge: string }
+  ): void {
+    const id = theme.id;
+    const centerX = size / 2;
+
+    const fillAsphalt = (c0: string, c1: string, c2: string) => {
+      const g = ctx.createLinearGradient(0, 0, size, 0);
+      g.addColorStop(0, c0);
+      g.addColorStop(0.5, c1);
+      g.addColorStop(1, c2);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    };
+
+    if (id === 2) {
+      ctx.fillStyle = '#5D4037';
+      ctx.fillRect(0, 0, size * 0.2, size);
+      ctx.fillRect(size * 0.8, 0, size * 0.2, size);
+      for (let y = 0; y < size; y += 10) {
+        for (let bx = 0; bx < 2; bx++) {
+          const ox = bx === 0 ? 0 : size * 0.8;
+          for (let x = 0; x < size * 0.2; x += 10) {
+            ctx.fillStyle = (x + y + bx) % 20 === 0 ? '#6D4C41' : '#A1887F';
+            ctx.fillRect(ox + x, y, 10, 10);
+          }
+        }
+      }
+      const mid = ctx.createLinearGradient(size * 0.2, 0, size * 0.8, 0);
+      mid.addColorStop(0, '#252c32');
+      mid.addColorStop(0.5, '#3a444c');
+      mid.addColorStop(1, '#252c32');
+      ctx.fillStyle = mid;
+      ctx.fillRect(size * 0.2, 0, size * 0.6, size);
+    } else if (id === 3) {
+      fillAsphalt('#C4A574', '#4a4035', '#C4A574');
+      ctx.fillStyle = 'rgba(212,165,116,0.55)';
+      ctx.fillRect(0, 0, size * 0.16, size);
+      ctx.fillRect(size * 0.84, 0, size * 0.16, size);
+      for (let i = 0; i < 12; i++) {
+        const sx = (i % 2 === 0 ? 0 : size * 0.84) + (i % 3) * 8;
+        const sy = (i * 37) % (size - 30);
+        ctx.fillStyle = 'rgba(255,224,178,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(sx + 12, sy, 18, 8, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = 'rgba(62,47,35,0.35)';
+      for (let i = 0; i < 8; i++) {
+        const cx = size * 0.3 + (i * 29) % (size * 0.4);
+        const cy = (i * 53) % size;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + 12, cy + 8);
+        ctx.stroke();
+      }
+    } else if (id === 4) {
+      fillAsphalt('#1a2820', '#243830', '#1a2820');
+      ctx.fillStyle = 'rgba(46,125,50,0.35)';
+      ctx.fillRect(0, 0, size * 0.14, size);
+      ctx.fillRect(size * 0.86, 0, size * 0.14, size);
+      for (let i = 0; i < 40; i++) {
+        ctx.fillStyle = `rgba(${80 + (i % 3) * 30},${120 + (i % 4) * 20},70,0.2)`;
+        ctx.fillRect((i * 19) % size, (i * 31) % size, 3, 2);
+      }
+      const wet = ctx.createLinearGradient(centerX - size * 0.1, 0, centerX + size * 0.1, 0);
+      wet.addColorStop(0, 'rgba(0,0,0,0)');
+      wet.addColorStop(0.5, 'rgba(80,160,140,0.14)');
+      wet.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = wet;
+      ctx.fillRect(0, 0, size, size);
+    } else if (id === 5) {
+      fillAsphalt('#2a3036', '#3d454c', '#2a3036');
+      for (let i = 0; i < 6; i++) {
+        const gx = size * 0.25 + (i * 41) % (size * 0.5);
+        const gy = (i * 67) % (size - 40);
+        ctx.fillStyle = '#546E7A';
+        ctx.fillRect(gx, gy, 28, 22);
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        for (let d = 0; d < 4; d++) {
+          ctx.beginPath();
+          ctx.moveTo(gx + d * 7, gy);
+          ctx.lineTo(gx + d * 7 + 14, gy + 22);
+          ctx.stroke();
+        }
+      }
+      ctx.fillStyle = 'rgba(20,20,25,0.2)';
+      for (let i = 0; i < 10; i++) {
+        ctx.beginPath();
+        ctx.ellipse((i * 43) % size, (i * 61) % size, 10, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (id >= 6) {
+      fillAsphalt('#14101f', '#1e1830', '#14101f');
+      ctx.strokeStyle = accent.primary;
+      ctx.globalAlpha = 0.2;
+      ctx.lineWidth = 1;
+      for (let x = 0; x < size; x += 16) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, size);
+        ctx.stroke();
+      }
+      for (let y = 0; y < size; y += 16) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(size, y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      glow.fillStyle = accent.primary;
+      glow.globalAlpha = 0.08;
+      for (let x = 0; x < size; x += 16) {
+        glow.fillRect(x, 0, 1, size);
+        glow.fillRect(0, x, size, 1);
+      }
+      glow.globalAlpha = 1;
+      if (id >= 7) {
+        ctx.strokeStyle = 'rgba(229,57,53,0.25)';
+        for (let i = 0; i < 6; i++) {
+          const cx = size * 0.35 + (i * 37) % (size * 0.3);
+          const cy = (i * 71) % size;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + 20, cy + 6);
+          ctx.stroke();
+        }
+      }
+    } else {
+      fillAsphalt('#1e252b', '#3d4850', '#1e252b');
+      if (id === 1) {
+        ctx.fillStyle = 'rgba(180,200,160,0.04)';
+        ctx.fillRect(0, 0, size * 0.12, size);
+        ctx.fillRect(size * 0.88, 0, size * 0.12, size);
+      }
+    }
+
+    const wetCenter = glow.createLinearGradient(centerX - size * 0.1, 0, centerX + size * 0.1, 0);
+    wetCenter.addColorStop(0, 'rgba(0,0,0,0)');
+    wetCenter.addColorStop(0.5, 'rgba(120,180,220,0.1)');
+    wetCenter.addColorStop(1, 'rgba(0,0,0,0)');
+    glow.fillStyle = wetCenter;
+    glow.fillRect(centerX - size * 0.12, 0, size * 0.24, size);
+  }
+
+  private getRoadStreakTexture(): THREE.CanvasTexture {
+    if (this.roadStreakTex) return this.roadStreakTex;
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 24; i++) {
+      const y = (i * 17) % 120;
+      const w = 40 + (i % 5) * 12;
+      const g = ctx.createLinearGradient(64 - w / 2, y, 64 + w / 2, y);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.35, `rgba(255,255,255,${0.08 + (i % 3) * 0.04})`);
+      g.addColorStop(0.5, `rgba(255,255,255,${0.22 + (i % 4) * 0.05})`);
+      g.addColorStop(0.65, `rgba(255,255,255,${0.08 + (i % 3) * 0.04})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, y - 1, 128, 3 + (i % 2));
+    }
+    this.roadStreakTex = new THREE.CanvasTexture(c);
+    this.roadStreakTex.colorSpace = THREE.SRGBColorSpace;
+    this.roadStreakTex.wrapS = this.roadStreakTex.wrapT = THREE.RepeatWrapping;
+    return this.roadStreakTex;
+  }
+
+  private getRoadRainTexture(): THREE.CanvasTexture {
+    if (this.roadRainTex) return this.roadRainTex;
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.strokeStyle = 'rgba(180,220,255,0.35)';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 48; i++) {
+      const x = (i * 23) % 128;
+      const y = (i * 41) % 128;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 6, y + 14);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(150,200,255,0.06)';
+    for (let i = 0; i < 20; i++) {
+      ctx.fillRect((i * 31) % 120, (i * 47) % 120, 2, 8);
+    }
+    this.roadRainTex = new THREE.CanvasTexture(c);
+    this.roadRainTex.colorSpace = THREE.SRGBColorSpace;
+    this.roadRainTex.wrapS = this.roadRainTex.wrapT = THREE.RepeatWrapping;
+    return this.roadRainTex;
+  }
+
+  private placeBoostPads(theme: DistrictTheme, levelLength: number): void {
+    const accent = this.roadAccentForTheme(theme);
+    const step = IS_MOBILE ? 58 : 46;
+    for (let z = 52; z < levelLength - 24; z += step) {
+      const group = new THREE.Group();
+      group.position.set(0, 0, z);
+
+      const ring = addMesh(
+        group,
+        new THREE.RingGeometry(0.75, 1.05, IS_MOBILE ? 20 : 28),
+        new THREE.MeshBasicMaterial({
+          color: accent.primary,
+          transparent: true,
+          opacity: 0.22,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+        0,
+        0.034,
+        0,
+        false
+      );
+      ring.rotation.x = -Math.PI / 2;
+
+      const core = addMesh(
+        group,
+        new THREE.CircleGeometry(0.72, IS_MOBILE ? 16 : 24),
+        new THREE.MeshBasicMaterial({
+          color: accent.secondary,
+          transparent: true,
+          opacity: 0.1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+        0,
+        0.035,
+        0,
+        false
+      );
+      core.rotation.x = -Math.PI / 2;
+
+      for (let i = 0; i < 3; i++) {
+        const arrow = addMesh(
+          group,
+          new THREE.PlaneGeometry(0.35, 0.22),
+          new THREE.MeshBasicMaterial({
+            color: accent.primary,
+            transparent: true,
+            opacity: 0.35,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+          0,
+          0.036,
+          -0.25 + i * 0.25,
+          false
+        );
+        arrow.rotation.x = -Math.PI / 2;
+        arrow.userData.isPadArrow = true;
+      }
+
+      freezeStatic(group);
+      this.scene.add(group);
+      this.rootMeshes.push(group);
+      this.boostPads.push({ group, z, flash: 0 });
+    }
+  }
+
   getSkyNight(): number {
     return this.skyNight;
   }
@@ -623,21 +973,7 @@ export class World {
 
     const accent = this.roadAccentForTheme(theme);
 
-    const asphalt = ctx.createLinearGradient(0, 0, size, 0);
-    asphalt.addColorStop(0, '#1e252b');
-    asphalt.addColorStop(0.22, '#2a3239');
-    asphalt.addColorStop(0.5, '#3d4850');
-    asphalt.addColorStop(0.78, '#2a3239');
-    asphalt.addColorStop(1, '#1e252b');
-    ctx.fillStyle = asphalt;
-    ctx.fillRect(0, 0, size, size);
-
-    const wetCenter = ctx.createLinearGradient(size * 0.42, 0, size * 0.58, 0);
-    wetCenter.addColorStop(0, 'rgba(0,0,0,0)');
-    wetCenter.addColorStop(0.5, 'rgba(120,160,200,0.09)');
-    wetCenter.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = wetCenter;
-    ctx.fillRect(0, 0, size, size);
+    this.drawDistrictRoadSurface(ctx, em, glow, theme, size, accent);
 
     for (let i = 0; i < size * 2; i++) {
       const x = (i * 47) % size;
@@ -1480,32 +1816,79 @@ export class World {
     }
   }
 
-  update(time: number, playerZ = this.playerZ, dt = 0.016): void {
+  update(time: number, playerZ = this.playerZ, dt = 0.016, fx?: RoadFxInput): void {
+    if (fx) this.roadFx = fx;
+    this.playerZ = playerZ;
+    this.wetFactor = this.rainWetForDistrict(this.skyTheme, this.skyNight);
+
     this.updateSkyCycle(time, dt);
     this.skyEffects?.update(time, dt, playerZ);
-    if (this.roadTexture) {
-      this.roadTexture.offset.y = -time * 0.12;
-    }
-    if (this.roadEmissiveTex) {
-      this.roadEmissiveTex.offset.y = -time * 0.12;
-    }
-    if (this.roadGlowTex) {
-      this.roadGlowTex.offset.y = -time * 0.12;
-    }
+
+    const scroll = time * 0.12;
+    const speedRatio = this.roadFx.baseSpeed > 0 ? this.roadFx.speed / this.roadFx.baseSpeed : 1;
+    const turbo = this.roadFx.turbo || speedRatio > 1.12;
+    const streakScroll = scroll * (turbo ? 2.8 + speedRatio * 0.5 : speedRatio > 1.05 ? 1.6 : 1);
+
+    if (this.roadTexture) this.roadTexture.offset.y = -scroll;
+    if (this.roadEmissiveTex) this.roadEmissiveTex.offset.y = -scroll;
+    if (this.roadGlowTex) this.roadGlowTex.offset.y = -scroll;
+    if (this.roadStreakTex) this.roadStreakTex.offset.y = -streakScroll;
+    if (this.roadRainTex) this.roadRainTex.offset.y = -time * 0.85;
+
+    const night = this.skyNight;
+    const wetMul = 1 + this.wetFactor * (this.wetFactor > 0.45 ? 1 : 0.65);
+
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
-      const night = this.skyNight;
       const dayPop = 0.12 + (1 - night) * 0.14;
       const base = dayPop + night * (IS_MOBILE ? 0.42 : 0.62);
       const pulse = 1 + Math.sin(time * 2.4) * 0.04 * night;
-      rm.emissiveIntensity = base * pulse;
+      rm.emissiveIntensity = base * pulse * (turbo ? 1.12 : 1);
+      rm.roughness = 0.8 - night * 0.14 - this.wetFactor * 0.12;
+      rm.metalness = 0.08 + night * 0.12 + this.wetFactor * 0.14;
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
-      const night = this.skyNight;
       const base = (IS_MOBILE ? 0.14 : 0.22) + night * (IS_MOBILE ? 0.38 : 0.52);
       const pulse = 1 + Math.sin(time * 3.1 + 0.5) * 0.06 * night;
-      gm.opacity = base * pulse;
+      gm.opacity = base * pulse * wetMul * (turbo ? 1.15 : 1);
+      if (turbo) gm.color.set(this.roadAccent.secondary);
+    }
+    if (this.roadStreakMesh) {
+      const sm = this.roadStreakMesh.material as THREE.MeshBasicMaterial;
+      const target = turbo ? 0.28 + (speedRatio - 1) * 0.22 : speedRatio > 1.08 ? 0.08 : 0;
+      sm.opacity += (target - sm.opacity) * Math.min(1, dt * 8);
+      sm.color.set(turbo ? this.roadAccent.secondary : this.roadAccent.primary);
+    }
+    if (this.roadRainMesh) {
+      const rm = this.roadRainMesh.material as THREE.MeshBasicMaterial;
+      rm.opacity = this.wetFactor * (IS_MOBILE ? 0.22 : 0.32);
+      rm.visible = this.wetFactor > 0.18;
+    }
+
+    const padRange = IS_MOBILE ? 42 : 58;
+    for (const pad of this.boostPads) {
+      const near = Math.abs(pad.z - playerZ) < padRange;
+      pad.group.visible = near;
+      if (!near) continue;
+
+      if (Math.abs(playerZ - pad.z) < 1.4 && Math.abs(this.roadFx.playerX) < 1.6) {
+        pad.flash = 1;
+      }
+      pad.flash = Math.max(0, pad.flash - dt * 2.8);
+
+      pad.group.traverse((c) => {
+        if (!(c instanceof THREE.Mesh)) return;
+        const m = c.material as THREE.MeshBasicMaterial;
+        const idle = c.userData.isPadArrow ? 0.28 : 0.2;
+        const peak = c.userData.isPadArrow ? 0.95 : 0.75;
+        m.opacity = idle + pad.flash * (peak - idle);
+      });
+      if (pad.flash > 0.85) {
+        pad.group.scale.setScalar(1 + pad.flash * 0.06);
+      } else {
+        pad.group.scale.setScalar(1);
+      }
     }
     if (!IS_MOBILE && this.rootMeshes[0]?.userData.isTerrain) {
       const grass = this.rootMeshes[0] as THREE.Mesh;
@@ -1552,6 +1935,7 @@ export class World {
     }
     this.rootMeshes = [];
     this.animProps = [];
+    this.boostPads = [];
     if (this.roadTexture) this.roadTexture.dispose();
     if (this.roadEmissiveTex) {
       this.roadEmissiveTex.dispose();
@@ -1561,12 +1945,22 @@ export class World {
       this.roadGlowTex.dispose();
       this.roadGlowTex = null;
     }
+    if (this.roadStreakTex) {
+      this.roadStreakTex.dispose();
+      this.roadStreakTex = null;
+    }
+    if (this.roadRainTex) {
+      this.roadRainTex.dispose();
+      this.roadRainTex = null;
+    }
     if (this.lightPoolTexture) {
       this.lightPoolTexture.dispose();
       this.lightPoolTexture = null;
     }
     this.roadMesh = null;
     this.roadGlowMesh = null;
+    this.roadStreakMesh = null;
+    this.roadRainMesh = null;
     if (this.skyTexture) {
       this.skyTexture.dispose();
       this.skyTexture = null;

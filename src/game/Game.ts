@@ -647,7 +647,12 @@ export class Game {
     updateRunners(this.runners, scaledDt, this.gameTime, 1, pz);
     this.throws = updateThrows(this.throws, dt, this.scene, this.gameTime);
     this.particles.update(dt);
-    this.world.update(this.gameTime, pz, dt);
+    this.world.update(this.gameTime, pz, dt, {
+      turbo: this.turboTimer > 0,
+      speed: this.run.speed,
+      baseSpeed: this.run.baseSpeed,
+      playerX: this.player.x,
+    });
 
     for (const g of this.routeGates) {
       if (!g.resolved && isNearZ(g.z, pz, IS_MOBILE ? 42 : 55)) animateGate(g, this.gameTime);
