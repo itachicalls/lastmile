@@ -1141,7 +1141,7 @@ export class Game {
     }
     if (this.pipeline) {
       const night = this.world.getSkyNight();
-      const bloom = (IS_MOBILE ? 0.3 : 0.34) + night * (IS_MOBILE ? 0.16 : 0.18);
+      const bloom = (IS_MOBILE ? 0.32 : 0.36) + night * (IS_MOBILE ? 0.18 : 0.24);
       this.pipeline.setBloomStrength(bloom);
       this.pipeline.render();
     } else {

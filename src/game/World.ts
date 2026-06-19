@@ -22,7 +22,10 @@ export class World {
   private animProps: AnimProp[] = [];
   private roadTexture!: THREE.CanvasTexture;
   private roadEmissiveTex: THREE.CanvasTexture | null = null;
+  private roadGlowTex: THREE.CanvasTexture | null = null;
   private roadMesh: THREE.Mesh | null = null;
+  private roadGlowMesh: THREE.Mesh | null = null;
+  private roadAccent = { primary: '#FFE082', secondary: '#FFF8E1', edge: '#FFFFFF' };
   private lightPoolTexture: THREE.CanvasTexture | null = null;
   private skyTexture: THREE.CanvasTexture | null = null;
   private skyCanvas: HTMLCanvasElement | null = null;
@@ -94,26 +97,29 @@ export class World {
       this.rootMeshes.push(walk);
     }
 
-    // Textured road with night-reflective lane markings
-    const roadMaps = this.makeRoadTextures();
+    // Textured road with night-reflective lane markings + bloom glow overlay
+    this.roadAccent = this.roadAccentForTheme(theme);
+    const roadMaps = this.makeRoadTextures(theme);
     this.roadTexture = roadMaps.color;
     this.roadEmissiveTex = roadMaps.emissive;
+    this.roadGlowTex = roadMaps.glow;
     const roadRepeatY = (levelLength + 140) / 8;
-    this.roadTexture.wrapS = this.roadTexture.wrapT = THREE.RepeatWrapping;
-    this.roadEmissiveTex.wrapS = this.roadEmissiveTex.wrapT = THREE.RepeatWrapping;
-    this.roadTexture.repeat.set(1, roadRepeatY);
-    this.roadEmissiveTex.repeat.set(1, roadRepeatY);
+    for (const tex of [this.roadTexture, this.roadEmissiveTex, this.roadGlowTex]) {
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1, roadRepeatY);
+    }
     const road = addMesh(
       this.scene,
       new THREE.PlaneGeometry(9.5, levelLength + 140),
       new THREE.MeshStandardMaterial({
         map: this.roadTexture,
         emissiveMap: this.roadEmissiveTex,
-        emissive: '#FFE082',
-        emissiveIntensity: 0,
-        roughness: 0.8,
-        metalness: 0.07,
-        envMapIntensity: 0.4,
+        emissive: this.roadAccent.primary,
+        emissiveIntensity: 0.1,
+        color: '#c8cdd2',
+        roughness: 0.76,
+        metalness: 0.1,
+        envMapIntensity: 0.45,
       }),
       0,
       0,
@@ -126,6 +132,27 @@ export class World {
     road.userData.isTerrain = true;
     this.roadMesh = road;
     this.rootMeshes.push(road);
+
+    const roadGlow = addMesh(
+      this.scene,
+      new THREE.PlaneGeometry(9.5, levelLength + 140),
+      new THREE.MeshBasicMaterial({
+        map: this.roadGlowTex,
+        color: this.roadAccent.primary,
+        transparent: true,
+        opacity: IS_MOBILE ? 0.18 : 0.26,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      0,
+      0.032,
+      levelLength / 2,
+      false
+    );
+    roadGlow.rotation.x = -Math.PI / 2;
+    roadGlow.userData.isTerrain = true;
+    this.roadGlowMesh = roadGlow;
+    this.rootMeshes.push(roadGlow);
 
     const curbTex = this.makeCurbTexture();
     curbTex.wrapS = curbTex.wrapT = THREE.RepeatWrapping;
@@ -152,7 +179,7 @@ export class World {
       addMesh(
         curb,
         new THREE.BoxGeometry(0.05, 0.19, levelLength + 140),
-        mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.12 }),
+        mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.22 }),
         x > 0 ? -0.17 : 0.17,
         0,
         0,
@@ -525,10 +552,29 @@ export class World {
     }
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
-      rm.emissiveIntensity = night * (IS_MOBILE ? 0.2 : 0.34);
-      rm.roughness = 0.84 - night * 0.1;
-      rm.metalness = 0.05 + night * 0.08;
+      const dayPop = 0.12 + (1 - night) * 0.14;
+      rm.emissiveIntensity = dayPop + night * (IS_MOBILE ? 0.42 : 0.62);
+      rm.emissive.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), night * 0.35);
+      rm.roughness = 0.8 - night * 0.14;
+      rm.metalness = 0.08 + night * 0.12;
+      rm.color.set('#c8cdd2').lerp(new THREE.Color('#9aa8b8'), night * 0.35);
     }
+    if (this.roadGlowMesh) {
+      const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
+      const base = IS_MOBILE ? 0.14 : 0.22;
+      gm.opacity = base + night * (IS_MOBILE ? 0.38 : 0.52);
+      gm.color.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), night * 0.25);
+      this.roadGlowMesh.visible = night > 0.06 || !IS_MOBILE;
+    }
+  }
+
+  private roadAccentForTheme(theme: DistrictTheme): { primary: string; secondary: string; edge: string } {
+    if (theme.id >= 6) return { primary: '#EA80FC', secondary: '#80DEEA', edge: '#E1BEE7' };
+    if (theme.id >= 5) return { primary: '#FF7043', secondary: '#FFD54F', edge: '#FFCC80' };
+    if (theme.id >= 4) return { primary: '#69F0AE', secondary: '#80DEEA', edge: '#B2FF59' };
+    if (theme.id >= 3) return { primary: '#FFB74D', secondary: '#FFE082', edge: '#FFF8E1' };
+    if (theme.id >= 2) return { primary: '#FFD54F', secondary: '#FFAB40', edge: '#FFFFFF' };
+    return { primary: '#FFE082', secondary: '#FFF59D', edge: '#FFFFFF' };
   }
 
   getSkyNight(): number {
@@ -550,7 +596,11 @@ export class World {
     this.paintSky(night, this.skyTheme);
   }
 
-  private makeRoadTextures(): { color: THREE.CanvasTexture; emissive: THREE.CanvasTexture } {
+  private makeRoadTextures(theme: DistrictTheme): {
+    color: THREE.CanvasTexture;
+    emissive: THREE.CanvasTexture;
+    glow: THREE.CanvasTexture;
+  } {
     const size = 256;
     const colorCanvas = document.createElement('canvas');
     colorCanvas.width = size;
@@ -564,29 +614,45 @@ export class World {
     em.fillStyle = '#000000';
     em.fillRect(0, 0, size, size);
 
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = size;
+    glowCanvas.height = size;
+    const glow = glowCanvas.getContext('2d')!;
+    glow.fillStyle = '#000000';
+    glow.fillRect(0, 0, size, size);
+
+    const accent = this.roadAccentForTheme(theme);
+
     const asphalt = ctx.createLinearGradient(0, 0, size, 0);
-    asphalt.addColorStop(0, '#252c32');
-    asphalt.addColorStop(0.35, '#323b42');
-    asphalt.addColorStop(0.5, '#3a444c');
-    asphalt.addColorStop(0.65, '#323b42');
-    asphalt.addColorStop(1, '#252c32');
+    asphalt.addColorStop(0, '#1e252b');
+    asphalt.addColorStop(0.22, '#2a3239');
+    asphalt.addColorStop(0.5, '#3d4850');
+    asphalt.addColorStop(0.78, '#2a3239');
+    asphalt.addColorStop(1, '#1e252b');
     ctx.fillStyle = asphalt;
+    ctx.fillRect(0, 0, size, size);
+
+    const wetCenter = ctx.createLinearGradient(size * 0.42, 0, size * 0.58, 0);
+    wetCenter.addColorStop(0, 'rgba(0,0,0,0)');
+    wetCenter.addColorStop(0.5, 'rgba(120,160,200,0.09)');
+    wetCenter.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = wetCenter;
     ctx.fillRect(0, 0, size, size);
 
     for (let i = 0; i < size * 2; i++) {
       const x = (i * 47) % size;
       const y = (i * 83) % size;
       const n = ((x * 17 + y * 31) % 100) / 100;
-      ctx.fillStyle = n > 0.55 ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.035)';
+      ctx.fillStyle = n > 0.55 ? 'rgba(255,255,255,0.022)' : 'rgba(0,0,0,0.04)';
       ctx.fillRect(x, y, 1 + (i % 2), 1 + (i % 3));
     }
 
     for (let y = 0; y < size; y += 3) {
-      ctx.fillStyle = y % 6 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.03)';
+      ctx.fillStyle = y % 6 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.035)';
       ctx.fillRect(0, y, size, 2);
     }
 
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillStyle = 'rgba(0,0,0,0.11)';
     for (let i = 0; i < 18; i++) {
       const ox = (i * 37) % (size - 40);
       const oy = (i * 59) % (size - 30);
@@ -595,7 +661,7 @@ export class World {
       ctx.fill();
     }
 
-    ctx.fillStyle = 'rgba(90,110,130,0.05)';
+    ctx.fillStyle = 'rgba(90,110,130,0.06)';
     for (let i = 0; i < 8; i++) {
       ctx.fillRect((i * 61) % (size - 50), (i * 73) % (size - 90), 36, 70 + (i % 3) * 20);
     }
@@ -604,22 +670,41 @@ export class World {
     const centerX = size / 2;
     const laneXs = [size * 0.2, size * 0.4, size * 0.6, size * 0.8];
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.88)';
-    ctx.lineWidth = Math.max(3, size / 64);
+    const drawGlowLine = (
+      target: CanvasRenderingContext2D,
+      x: number,
+      color: string,
+      width: number,
+      alpha: number,
+      dashed?: number[]
+    ) => {
+      if (dashed) target.setLineDash(dashed);
+      for (const w of [width * 2.2, width * 1.4, width]) {
+        target.strokeStyle = color;
+        target.globalAlpha = alpha * (w === width ? 1 : w === width * 1.4 ? 0.45 : 0.2);
+        target.lineWidth = w;
+        target.lineCap = 'round';
+        target.beginPath();
+        target.moveTo(x, 0);
+        target.lineTo(x, size);
+        target.stroke();
+      }
+      target.globalAlpha = 1;
+      if (dashed) target.setLineDash([]);
+    };
+
     for (const lx of edgeX) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+      ctx.lineWidth = Math.max(3, size / 64);
       ctx.beginPath();
       ctx.moveTo(lx, 0);
       ctx.lineTo(lx, size);
       ctx.stroke();
-      em.strokeStyle = 'rgba(255,255,255,0.95)';
-      em.lineWidth = ctx.lineWidth;
-      em.beginPath();
-      em.moveTo(lx, 0);
-      em.lineTo(lx, size);
-      em.stroke();
+      drawGlowLine(em, lx, accent.edge, Math.max(3, size / 64), 0.95);
+      drawGlowLine(glow, lx, '#ffffff', Math.max(5, size / 42), 0.35);
     }
 
-    ctx.strokeStyle = '#FDD835';
+    ctx.strokeStyle = '#FFEB3B';
     ctx.lineWidth = Math.max(4, size / 48);
     ctx.lineCap = 'round';
     ctx.setLineDash([size * 0.045, size * 0.028]);
@@ -628,17 +713,28 @@ export class World {
       ctx.moveTo(centerX + ox, 0);
       ctx.lineTo(centerX + ox, size);
       ctx.stroke();
-      em.strokeStyle = '#FFD54F';
-      em.lineWidth = ctx.lineWidth;
-      em.setLineDash([size * 0.045, size * 0.028]);
-      em.beginPath();
-      em.moveTo(centerX + ox, 0);
-      em.lineTo(centerX + ox, size);
-      em.stroke();
+      drawGlowLine(em, centerX + ox, '#FFD54F', Math.max(4, size / 48), 1, [size * 0.045, size * 0.028]);
+      drawGlowLine(glow, centerX + ox, accent.primary, Math.max(6, size / 36), 0.55, [size * 0.045, size * 0.028]);
     }
     ctx.setLineDash([]);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    const centerRibbon = glow.createLinearGradient(centerX - size * 0.08, 0, centerX + size * 0.08, 0);
+    centerRibbon.addColorStop(0, 'rgba(0,0,0,0)');
+    centerRibbon.addColorStop(0.35, 'rgba(255,220,120,0.12)');
+    centerRibbon.addColorStop(0.5, 'rgba(255,240,180,0.28)');
+    centerRibbon.addColorStop(0.65, 'rgba(255,220,120,0.12)');
+    centerRibbon.addColorStop(1, 'rgba(0,0,0,0)');
+    glow.fillStyle = centerRibbon;
+    glow.fillRect(centerX - size * 0.1, 0, size * 0.2, size);
+
+    const emRibbon = em.createLinearGradient(centerX - size * 0.06, 0, centerX + size * 0.06, 0);
+    emRibbon.addColorStop(0, 'rgba(0,0,0,0)');
+    emRibbon.addColorStop(0.5, 'rgba(255,213,79,0.35)');
+    emRibbon.addColorStop(1, 'rgba(0,0,0,0)');
+    em.fillStyle = emRibbon;
+    em.fillRect(centerX - size * 0.08, 0, size * 0.16, size);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.32)';
     ctx.lineWidth = Math.max(2, size / 96);
     ctx.setLineDash([size * 0.035, size * 0.04]);
     for (const lx of laneXs) {
@@ -646,31 +742,51 @@ export class World {
       ctx.moveTo(lx, 0);
       ctx.lineTo(lx, size);
       ctx.stroke();
-      em.strokeStyle = 'rgba(255,255,255,0.35)';
-      em.lineWidth = ctx.lineWidth;
-      em.setLineDash([size * 0.035, size * 0.04]);
-      em.beginPath();
-      em.moveTo(lx, 0);
-      em.lineTo(lx, size);
-      em.stroke();
+      drawGlowLine(em, lx, 'rgba(255,255,255,0.55)', Math.max(2, size / 96), 0.7, [size * 0.035, size * 0.04]);
     }
     ctx.setLineDash([]);
 
     for (let band = 0; band < 4; band++) {
       const by = band * (size / 4) + size / 16;
-      ctx.fillStyle = 'rgba(255,255,255,0.82)';
+      ctx.fillStyle = 'rgba(255,255,255,0.88)';
       for (let s = 0; s < 6; s++) {
         const sx = size * 0.38 + s * (size * 0.04);
         ctx.fillRect(sx, by, size * 0.028, size * 0.07);
-        em.fillStyle = 'rgba(255,255,255,0.55)';
-        em.fillRect(sx, by, size * 0.028, size * 0.07);
+        em.fillStyle = 'rgba(255,255,255,0.72)';
+        em.fillRect(sx - 1, by - 1, size * 0.03 + 2, size * 0.072 + 2);
+        glow.fillStyle = 'rgba(255,255,255,0.4)';
+        glow.fillRect(sx - 2, by - 2, size * 0.034 + 4, size * 0.076 + 4);
       }
     }
 
-    ctx.fillStyle = 'rgba(255,213,79,0.35)';
+    for (let row = 0; row < 4; row++) {
+      const cy = row * (size / 4) + size / 8;
+      for (let i = 0; i < 3; i++) {
+        const ax = centerX + (i - 1) * size * 0.055;
+        em.fillStyle = 'rgba(255,235,120,0.55)';
+        em.beginPath();
+        em.moveTo(ax, cy + size * 0.04);
+        em.lineTo(ax - size * 0.022, cy);
+        em.lineTo(ax + size * 0.022, cy);
+        em.closePath();
+        em.fill();
+        glow.fillStyle = 'rgba(255,220,100,0.28)';
+        glow.beginPath();
+        glow.moveTo(ax, cy + size * 0.05);
+        glow.lineTo(ax - size * 0.028, cy - size * 0.01);
+        glow.lineTo(ax + size * 0.028, cy - size * 0.01);
+        glow.closePath();
+        glow.fill();
+      }
+    }
+
+    ctx.fillStyle = 'rgba(255,213,79,0.42)';
     for (let i = 0; i < 16; i++) {
       ctx.fillRect(edgeX[0] + 4, (i * size) / 16 + 4, size * 0.012, size * 0.04);
       ctx.fillRect(edgeX[1] - 8, (i * size) / 16 + 10, size * 0.012, size * 0.04);
+      em.fillStyle = 'rgba(255,193,7,0.65)';
+      em.fillRect(edgeX[0] + 3, (i * size) / 16 + 3, size * 0.014, size * 0.044);
+      em.fillRect(edgeX[1] - 9, (i * size) / 16 + 9, size * 0.014, size * 0.044);
     }
 
     for (let i = 0; i < 5; i++) {
@@ -689,7 +805,9 @@ export class World {
     colorTex.colorSpace = THREE.SRGBColorSpace;
     const emissiveTex = new THREE.CanvasTexture(emCanvas);
     emissiveTex.colorSpace = THREE.SRGBColorSpace;
-    return { color: colorTex, emissive: emissiveTex };
+    const glowTex = new THREE.CanvasTexture(glowCanvas);
+    glowTex.colorSpace = THREE.SRGBColorSpace;
+    return { color: colorTex, emissive: emissiveTex, glow: glowTex };
   }
 
   private makeCurbTexture(): THREE.CanvasTexture {
@@ -1371,6 +1489,24 @@ export class World {
     if (this.roadEmissiveTex) {
       this.roadEmissiveTex.offset.y = -time * 0.12;
     }
+    if (this.roadGlowTex) {
+      this.roadGlowTex.offset.y = -time * 0.12;
+    }
+    if (this.roadMesh) {
+      const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
+      const night = this.skyNight;
+      const dayPop = 0.12 + (1 - night) * 0.14;
+      const base = dayPop + night * (IS_MOBILE ? 0.42 : 0.62);
+      const pulse = 1 + Math.sin(time * 2.4) * 0.04 * night;
+      rm.emissiveIntensity = base * pulse;
+    }
+    if (this.roadGlowMesh) {
+      const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
+      const night = this.skyNight;
+      const base = (IS_MOBILE ? 0.14 : 0.22) + night * (IS_MOBILE ? 0.38 : 0.52);
+      const pulse = 1 + Math.sin(time * 3.1 + 0.5) * 0.06 * night;
+      gm.opacity = base * pulse;
+    }
     if (!IS_MOBILE && this.rootMeshes[0]?.userData.isTerrain) {
       const grass = this.rootMeshes[0] as THREE.Mesh;
       const gMat = grass.material as THREE.MeshStandardMaterial;
@@ -1421,11 +1557,16 @@ export class World {
       this.roadEmissiveTex.dispose();
       this.roadEmissiveTex = null;
     }
+    if (this.roadGlowTex) {
+      this.roadGlowTex.dispose();
+      this.roadGlowTex = null;
+    }
     if (this.lightPoolTexture) {
       this.lightPoolTexture.dispose();
       this.lightPoolTexture = null;
     }
     this.roadMesh = null;
+    this.roadGlowMesh = null;
     if (this.skyTexture) {
       this.skyTexture.dispose();
       this.skyTexture = null;
