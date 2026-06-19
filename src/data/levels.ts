@@ -79,6 +79,60 @@ export const LEVELS: LevelDef[] = [
     { z: 850, safe: 'left' },
     { z: 1050, safe: 'right' },
   ], 9, 320),
+  level('3-1', 3, 'Scorpion Route', 'Blazing sand — watch for heat mirages and raiders in the haze.', 980, [
+    { z: 210, safe: 'left' },
+    { z: 500, safe: 'right' },
+    { z: 780, safe: 'left' },
+  ], 7, 280),
+  level('3-2', 3, 'Mirage Mile', 'Desert gates come fast. Stock packages at oases.', 1020, [
+    { z: 230, safe: 'right' },
+    { z: 520, safe: 'left' },
+    { z: 820, safe: 'right' },
+  ], 8, 300),
+  level('3-3', 3, 'Canyon Dash', 'Narrow canyon run — aliens love the shade.', 1080, [
+    { z: 200, safe: 'left' },
+    { z: 480, safe: 'right' },
+    { z: 760, safe: 'left' },
+    { z: 980, safe: 'right' },
+  ], 8, 310),
+  level('3-4', 3, 'Sandstorm Alley', 'Low visibility — listen for stalker footsteps.', 1120, [
+    { z: 240, safe: 'right' },
+    { z: 540, safe: 'left' },
+    { z: 860, safe: 'right' },
+  ], 9, 320),
+  level('3-5', 3, 'Boss: Dune Warlord', 'Clear the dunes. The warlord waits at the depot.', 1200, [
+    { z: 260, safe: 'left' },
+    { z: 560, safe: 'right' },
+    { z: 880, safe: 'left' },
+    { z: 1080, safe: 'right' },
+  ], 10, 340),
+  level('4-1', 4, 'Canopy Run', 'Welcome to the jungle — vines, ruins, and ambush aliens.', 1000, [
+    { z: 220, safe: 'right' },
+    { z: 510, safe: 'left' },
+    { z: 800, safe: 'right' },
+  ], 9, 300),
+  level('4-2', 4, 'Temple Steps', 'Ancient gates guard the old mail route.', 1040, [
+    { z: 240, safe: 'left' },
+    { z: 530, safe: 'right' },
+    { z: 840, safe: 'left' },
+  ], 10, 320),
+  level('4-3', 4, 'Vine Gauntlet', 'Thick cover — stalkers burst from the trees.', 1100, [
+    { z: 210, safe: 'right' },
+    { z: 500, safe: 'left' },
+    { z: 790, safe: 'right' },
+    { z: 1000, safe: 'left' },
+  ], 10, 330),
+  level('4-4', 4, 'Monsoon Rush', 'Wet roads, wild power-ups, heavy traffic.', 1140, [
+    { z: 250, safe: 'left' },
+    { z: 550, safe: 'right' },
+    { z: 870, safe: 'left' },
+  ], 11, 350),
+  level('4-5', 4, 'Boss: Jungle Overlord', 'Final jungle delivery — defeat the overlord!', 1250, [
+    { z: 270, safe: 'right' },
+    { z: 580, safe: 'left' },
+    { z: 900, safe: 'right' },
+    { z: 1120, safe: 'left' },
+  ], 12, 360),
 ];
 
 export function getLevel(id: string): LevelDef | undefined {
@@ -93,4 +147,8 @@ export function nextLevelId(currentId: string): string | null {
 
 export function prevDistrictLevels(district: number): LevelDef[] {
   return LEVELS.filter((l) => l.district === district);
+}
+
+export function districtsWithLevels(): number[] {
+  return [...new Set(LEVELS.map((l) => l.district))].sort((a, b) => a - b);
 }

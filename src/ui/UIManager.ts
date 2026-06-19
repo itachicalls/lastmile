@@ -1,7 +1,7 @@
 import { SaveManager } from '../save/SaveManager';
 import { Game, type HudData } from '../game/Game';
-import { LEVELS } from '../data/levels';
-import { DISTRICTS } from '../data/districts';
+import { LEVELS, districtsWithLevels } from '../data/levels';
+import { DISTRICTS, getDistrict } from '../data/districts';
 import { SHOP_ITEMS, SHOP_SECTIONS, itemCost } from '../data/shop';
 import { nextLevelId } from '../data/levels';
 import type { GameResult } from '../types';
@@ -9,6 +9,13 @@ import { CHARACTERS } from '../data/characters';
 import type { MailmanId } from '../types';
 import { menuBackdropHtml } from './menuBackdrop';
 import { mountCharacterPreview } from './CharacterPreview';
+
+const DISTRICT_MOOD: Record<number, string> = {
+  1: 'district-sunny',
+  2: 'district-downtown',
+  3: 'district-desert',
+  4: 'district-jungle',
+};
 
 type Screen = 'menu' | 'levels' | 'shop' | 'briefing' | 'game' | 'results';
 
@@ -70,25 +77,34 @@ export class UIManager {
     ).join('');
 
     const screen = this.wrapScreen(`
-      <div class="screen menu-screen screen-glass">
-        <div class="logo-wrap">
-          <div class="logo-icon">📦</div>
-          <h1>Last Mile</h1>
-          <p class="tagline">Courier Rush</p>
+      <div class="screen menu-screen">
+        <div class="menu-hero-card">
+          <div class="menu-hero-glow" aria-hidden="true"></div>
+          <div class="logo-wrap">
+            <div class="logo-emblem" aria-hidden="true">
+              <span class="logo-emblem-ring"></span>
+              <span class="logo-emblem-icon">📬</span>
+            </div>
+            <h1 class="game-title">
+              <span class="title-mail">MAIL</span>
+              <span class="title-run">RUN</span>
+            </h1>
+            <p class="game-tagline">Steer · Shoot · Deliver</p>
+          </div>
+          <div class="character-select">
+            <p class="character-select-label">Pick your courier</p>
+            <div class="character-cards">${characterCards}</div>
+          </div>
+          <div class="menu-stats">
+            <div class="stat-pill stat-pill-glow"><span>🪙</span> ${s.coins}</div>
+            <div class="stat-pill"><span>📦</span> ${s.totalDeliveries} drops</div>
+          </div>
+          <div class="menu-buttons">
+            <button class="btn btn-primary btn-glow btn-hero" id="btn-play">▶ Start Run</button>
+            <button class="btn btn-secondary btn-hero-secondary" id="btn-shop">🛒 Shop & Loadout</button>
+          </div>
+          <button class="btn btn-ghost btn-small" id="btn-reset">Reset Save</button>
         </div>
-        <div class="character-select">
-          <p class="character-select-label">Choose your mailman</p>
-          <div class="character-cards">${characterCards}</div>
-        </div>
-        <div class="menu-stats">
-          <div class="stat-pill"><span>🪙</span> ${s.coins}</div>
-          <div class="stat-pill"><span>📦</span> ${s.totalDeliveries} deliveries</div>
-        </div>
-        <div class="menu-buttons">
-          <button class="btn btn-primary btn-glow" id="btn-play">▶ Start Delivery</button>
-          <button class="btn btn-secondary" id="btn-shop">🛒 Shop & Loadout</button>
-        </div>
-        <button class="btn btn-ghost btn-small" id="btn-reset">Reset Save</button>
       </div>
     `);
     this.root.appendChild(screen);
@@ -133,10 +149,11 @@ export class UIManager {
           <div class="stat-pill"><span>🪙</span> ${s.coins}</div>
         </div>`;
 
-    for (const district of DISTRICTS.slice(0, 2)) {
-      const mood = district.id === 1 ? 'district-sunny' : 'district-downtown';
+    for (const districtId of districtsWithLevels()) {
+      const district = getDistrict(districtId);
+      const mood = DISTRICT_MOOD[districtId] ?? 'district-sunny';
       inner += `<div class="district-header ${mood}">${district.name}</div><div class="level-grid">`;
-      for (const lvl of LEVELS.filter((l) => l.district === district.id)) {
+      for (const lvl of LEVELS.filter((l) => l.district === districtId)) {
         const locked = !s.unlockedLevels.includes(lvl.id);
         const stars = s.levelStars[lvl.id] ?? 0;
         inner += `
@@ -161,7 +178,7 @@ export class UIManager {
 
   showBriefing(levelId: string): void {
     const lvl = LEVELS.find((l) => l.id === levelId)!;
-    const district = DISTRICTS[lvl.district - 1];
+    const district = getDistrict(lvl.district);
     this.screen = 'briefing';
     this.setCanvasVisible(false);
     this.clear();
@@ -234,7 +251,7 @@ export class UIManager {
       <div class="screen shop-screen screen-glass">
         <div class="shop-topbar">
           <button class="btn btn-secondary shop-back-btn" id="btn-back" type="button">← Menu</button>
-          <h1 class="shop-title">Runner Shop</h1>
+          <h1 class="shop-title">Mail Run Shop</h1>
           <div class="stat-pill gold shop-coins"><span>🪙</span> ${s.coins}</div>
         </div>
         <p class="shop-hint">Buy upgrades, then equip gear & an ability before your next run.</p>

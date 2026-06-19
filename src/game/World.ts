@@ -171,6 +171,18 @@ export class World {
           freezeStatic(tree);
           this.scene.add(tree);
           this.rootMeshes.push(tree);
+        } else if (theme.id === 3 && rng() > 0.38) {
+          const cactus = this.makeCactus(rng);
+          cactus.position.set(side * (12 + rng() * 4), 0, z + rng() * 4);
+          freezeStatic(cactus);
+          this.scene.add(cactus);
+          this.rootMeshes.push(cactus);
+        } else if (theme.id === 4 && rng() > 0.28) {
+          const palm = this.makePalmTree(rng);
+          palm.position.set(side * (12 + rng() * 4), 0, z + rng() * 4);
+          freezeStatic(palm);
+          this.scene.add(palm);
+          this.rootMeshes.push(palm);
         }
         if (rng() > (IS_MOBILE ? 0.78 : 0.62)) {
           const prop = rng() > 0.45 ? this.makeStreetLamp(theme) : this.makeMailbox();
@@ -215,6 +227,37 @@ export class World {
           freezeStatic(tree);
           this.scene.add(tree);
           this.rootMeshes.push(tree);
+        }
+      }
+    } else if (theme.id === 3) {
+      for (let z = 20; z < levelLength + 40; z += 16 + Math.floor(rng() * 8)) {
+        for (const side of [-1, 1]) {
+          if (rng() > 0.45) continue;
+          const cactus = this.makeCactus(rng);
+          cactus.position.set(side * (11 + rng() * 5), 0, z + rng() * 3);
+          freezeStatic(cactus);
+          this.scene.add(cactus);
+          this.rootMeshes.push(cactus);
+        }
+        if (rng() > 0.7) {
+          const rock = this.makeDesertRock(rng);
+          rock.position.set((rng() > 0.5 ? 1 : -1) * (10 + rng() * 6), 0, z);
+          freezeStatic(rock);
+          this.scene.add(rock);
+          this.rootMeshes.push(rock);
+        }
+      }
+    } else if (theme.id === 4) {
+      const treeStep = IS_MOBILE ? 12 : 9;
+      for (let z = 20; z < levelLength + 40; z += treeStep + Math.floor(rng() * 4)) {
+        for (const side of [-1, 1]) {
+          const nearHouse = buildingSlots.some((b) => b.side === side && Math.abs(b.z - z) < 7);
+          if (nearHouse || rng() > 0.35) continue;
+          const palm = this.makePalmTree(rng);
+          palm.position.set(side * (11.5 + rng() * 4.5), 0, z + rng() * 3);
+          freezeStatic(palm);
+          this.scene.add(palm);
+          this.rootMeshes.push(palm);
         }
       }
     }
@@ -595,30 +638,72 @@ export class World {
 
   private makeBuilding(theme: DistrictTheme, rng: () => number, roadSide: number): THREE.Group {
     const g = new THREE.Group();
-    const style = theme.id >= 4 ? 'neon' : theme.id >= 3 ? 'industrial' : theme.id >= 2 ? 'downtown' : 'suburban';
-    const h = style === 'downtown' ? 10 + rng() * 14 : style === 'suburban' ? 5 + rng() * 4 : 7 + rng() * 9;
-    const w = style === 'downtown' ? 5 + rng() * 3 : 4.5 + rng() * 3.5;
+    const style =
+      theme.id === 3
+        ? 'desert'
+        : theme.id === 4
+          ? 'jungle'
+          : theme.id >= 6
+            ? 'neon'
+            : theme.id >= 5
+              ? 'industrial'
+              : theme.id >= 2
+                ? 'downtown'
+                : 'suburban';
+    const h =
+      style === 'desert'
+        ? 4 + rng() * 3
+        : style === 'jungle'
+          ? 5 + rng() * 5
+          : style === 'downtown'
+            ? 10 + rng() * 14
+            : style === 'suburban'
+              ? 5 + rng() * 4
+              : 7 + rng() * 9;
+    const w = style === 'downtown' ? 5 + rng() * 3 : style === 'desert' ? 4 + rng() * 2.5 : 4.5 + rng() * 3.5;
     const d = 5 + rng() * 4;
 
     const wallHue = theme.buildingHue + rng() * 0.08;
     const wallColor = new THREE.Color().setHSL(wallHue, style === 'suburban' ? 0.42 : 0.32, style === 'neon' ? 0.22 : 0.38 + theme.id * 0.03);
     const trimColor = new THREE.Color().setHSL(wallHue, 0.25, style === 'suburban' ? 0.78 : 0.55);
-    const wallTex = style === 'suburban' ? getSidingTexture(wallHue) : getBrickTexture(wallHue);
+    const wallTex =
+      style === 'desert' || style === 'jungle'
+        ? getSidingTexture(wallHue)
+        : style === 'suburban'
+          ? getSidingTexture(wallHue)
+          : getBrickTexture(wallHue);
     wallTex.repeat.set(w / 2, h / 2);
-    const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, color: wallColor, roughness: 0.88 });
-    const trimMat = mat(trimColor.getStyle(), { roughness: 0.75 });
-    const roofTex = getRoofShingleTexture(style === 'suburban' ? '#BF360C' : '#455A64');
+    const wallMat = new THREE.MeshStandardMaterial({
+      map: wallTex,
+      color: style === 'desert' ? '#D7CCC8' : style === 'jungle' ? '#8D6E63' : wallColor,
+      roughness: style === 'desert' ? 0.95 : 0.88,
+    });
+    const trimMat = mat(
+      style === 'desert' ? '#BF360C' : style === 'jungle' ? '#33691E' : trimColor.getStyle(),
+      { roughness: 0.75 }
+    );
+    const roofTex = getRoofShingleTexture(
+      style === 'suburban' ? '#BF360C' : style === 'desert' ? '#A1887F' : style === 'jungle' ? '#558B2F' : '#455A64'
+    );
     roofTex.repeat.set(w / 2, 1.5);
     const roofMat = new THREE.MeshStandardMaterial({
       map: roofTex,
-      color: style === 'neon' ? '#311B92' : style === 'suburban' ? '#BF360C' : '#455A64',
+      color:
+        style === 'neon' ? '#311B92' : style === 'suburban' ? '#BF360C' : style === 'desert' ? '#A1887F' : style === 'jungle' ? '#558B2F' : '#455A64',
       roughness: 0.85,
       emissive: style === 'neon' ? '#7B1FA2' : '#000000',
       emissiveIntensity: style === 'neon' ? 0.25 : 0,
     });
 
     addMesh(g, new THREE.BoxGeometry(w, h, d), wallMat, 0, h / 2, 0);
-    addMesh(g, new THREE.BoxGeometry(w + 0.16, 0.28, d + 0.16), mat('#37474F', { roughness: 0.92 }), 0, 0.14, 0);
+    addMesh(
+      g,
+      new THREE.BoxGeometry(w + 0.16, 0.28, d + 0.16),
+      mat(style === 'desert' ? '#BCAAA4' : style === 'jungle' ? '#3E2723' : '#37474F', { roughness: 0.92 }),
+      0,
+      0.14,
+      0
+    );
     addMesh(g, new THREE.BoxGeometry(w + 0.2, 0.1, d + 0.2), trimMat, 0, 0.32, 0);
 
     if (style === 'suburban') {
@@ -638,6 +723,34 @@ export class World {
           0.15 - step * 0.05
         );
       }
+    } else if (style === 'desert') {
+      addMesh(g, new THREE.BoxGeometry(w + 0.15, 0.12, d + 0.15), roofMat, 0, h + 0.06, 0);
+      addMesh(g, new THREE.BoxGeometry(w * 0.35, 0.55, 0.35), mat('#FFCC80', { roughness: 0.9 }), 0, h + 0.35, 0);
+      if (rng() > 0.5) {
+        addMesh(g, new THREE.CylinderGeometry(0.08, 0.12, 0.6, 6), mat('#8D6E63'), w * 0.35, h + 0.65, d * 0.2);
+      }
+    } else if (style === 'jungle') {
+      addMesh(g, new THREE.BoxGeometry(w + 0.25, 0.35, d + 0.25), mat('#5D4037', { roughness: 0.9 }), 0, h + 0.5, 0);
+      addMesh(g, new THREE.BoxGeometry(w + 0.4, 0.22, d + 0.4), roofMat, 0, h + 0.85, 0);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        addMesh(
+          g,
+          new THREE.CylinderGeometry(0.06, 0.08, 1.2, 6),
+          mat('#6D4C41', { roughness: 0.95 }),
+          Math.cos(a) * (w * 0.35),
+          0.6,
+          Math.sin(a) * (d * 0.35)
+        );
+      }
+      addMesh(
+        g,
+        new THREE.BoxGeometry(0.12, h * 0.7, 0.08),
+        mat('#2E7D32', { emissive: '#1B5E20', emissiveIntensity: 0.15 }),
+        roadSide > 0 ? -w / 2 - 0.12 : w / 2 + 0.12,
+        h * 0.45,
+        0
+      );
     } else if (style === 'downtown') {
       addMesh(g, new THREE.BoxGeometry(w + 0.2, 0.35, d + 0.2), mat('#37474F'), 0, h + 0.18, 0);
       addMesh(g, new THREE.BoxGeometry(1.2, 0.55, 1.0), mat('#546E7A', { metalness: 0.35 }), w * 0.25, h + 0.55, 0);
@@ -732,6 +845,72 @@ export class World {
         );
       }
       addMesh(g, new THREE.SphereGeometry(0.07, 6, 6), mat('#FF5252', { emissive: '#D50000', emissiveIntensity: 0.3 }), 0.35, trunkH + 1.1, 0.25);
+    }
+    return g;
+  }
+
+  private makeCactus(rng: () => number): THREE.Group {
+    const g = new THREE.Group();
+    const green = mat('#558B2F', { roughness: 0.92 });
+    const darkGreen = mat('#33691E', { roughness: 0.95 });
+    const h = 1.6 + rng() * 1.4;
+    addMesh(g, new THREE.CylinderGeometry(0.22, 0.28, h, 8), green, 0, h / 2, 0);
+    const armH = h * (0.45 + rng() * 0.2);
+    const armY = h * (0.45 + rng() * 0.15);
+    const side = rng() > 0.5 ? 1 : -1;
+    addMesh(g, new THREE.CylinderGeometry(0.14, 0.18, armH * 0.55, 6), green, side * 0.28, armY, 0);
+    addMesh(g, new THREE.CylinderGeometry(0.12, 0.14, armH, 6), green, side * 0.42, armY + armH * 0.35, 0);
+    if (rng() > 0.4) {
+      const side2 = -side;
+      addMesh(g, new THREE.CylinderGeometry(0.12, 0.16, armH * 0.5, 6), darkGreen, side2 * 0.24, h * 0.35, 0);
+      addMesh(g, new THREE.CylinderGeometry(0.1, 0.12, armH * 0.75, 6), darkGreen, side2 * 0.36, h * 0.35 + armH * 0.3, 0);
+    }
+    return g;
+  }
+
+  private makePalmTree(rng: () => number): THREE.Group {
+    const g = new THREE.Group();
+    const trunkH = 2.8 + rng() * 1.8;
+    const barkMat = mat('#6D4C41', { roughness: 0.95 });
+    addMesh(g, new THREE.CylinderGeometry(0.18, 0.32, trunkH, 8), barkMat, 0, trunkH / 2, 0);
+    for (let ring = 0; ring < 4; ring++) {
+      const y = 0.4 + ring * (trunkH / 4);
+      addMesh(g, new THREE.TorusGeometry(0.22, 0.04, 6, 10), mat('#5D4037'), 0, y, 0);
+    }
+    const leafMat = new THREE.MeshStandardMaterial({
+      color: '#2E7D32',
+      emissive: '#1B5E20',
+      emissiveIntensity: 0.12,
+      roughness: 0.9,
+      side: THREE.DoubleSide,
+    });
+    const frondCount = IS_MOBILE ? 5 : 7;
+    for (let i = 0; i < frondCount; i++) {
+      const a = (i / frondCount) * Math.PI * 2 + rng() * 0.2;
+      const frond = addMesh(g, new THREE.BoxGeometry(0.08, 0.04, 2.2 + rng() * 0.6), leafMat, 0, trunkH + 0.15, 0);
+      frond.rotation.y = a;
+      frond.rotation.x = -0.55 - rng() * 0.15;
+      frond.position.x = Math.cos(a) * 0.15;
+      frond.position.z = Math.sin(a) * 0.15;
+    }
+    if (!IS_MOBILE && rng() > 0.6) {
+      addMesh(g, new THREE.SphereGeometry(0.12, 6, 6), mat('#FF7043', { emissive: '#E64A19', emissiveIntensity: 0.25 }), 0.2, trunkH * 0.6, 0.15);
+    }
+    return g;
+  }
+
+  private makeDesertRock(rng: () => number): THREE.Group {
+    const g = new THREE.Group();
+    const rockMat = mat('#A1887F', { roughness: 0.98 });
+    const w = 0.8 + rng() * 1.2;
+    const h = 0.5 + rng() * 0.9;
+    const rock = addMesh(g, new THREE.BoxGeometry(w, h, w * (0.7 + rng() * 0.4)), rockMat, 0, h / 2, 0);
+    rock.rotation.y = rng() * Math.PI;
+    rock.rotation.z = (rng() - 0.5) * 0.25;
+    if (!IS_MOBILE && rng() > 0.5) {
+      const w2 = w * 0.55;
+      const h2 = h * 0.45;
+      addMesh(g, new THREE.BoxGeometry(w2, h2, w2), mat('#8D6E63', { roughness: 0.98 }), w * 0.35, h2 / 2, w * 0.2);
     }
     return g;
   }

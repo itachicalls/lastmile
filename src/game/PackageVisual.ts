@@ -56,11 +56,20 @@ function shellMat(color: string, opacity: number): THREE.MeshBasicMaterial {
 }
 
 function districtTheme(district: number): PackageTheme {
-  if (district >= 5) {
+  if (district >= 7) {
     return { core: '#FF5252', mid: '#FF1744', glow: '#FF8A80', particle: '#FFCDD2', shell: '#D50000', ribbon: '#FFD54F' };
   }
-  if (district >= 3) {
+  if (district >= 6) {
+    return { core: '#E1BEE7', mid: '#AB47BC', glow: '#EA80FC', particle: '#F3E5F5', shell: '#7B1FA2', ribbon: '#FFD54F' };
+  }
+  if (district === 5) {
     return { core: '#448AFF', mid: '#2979FF', glow: '#82B1FF', particle: '#E3F2FD', shell: '#1565C0', ribbon: '#FFD54F' };
+  }
+  if (district === 4) {
+    return { core: '#66BB6A', mid: '#43A047', glow: '#A5D6A7', particle: '#E8F5E9', shell: '#2E7D32', ribbon: '#FFD54F' };
+  }
+  if (district === 3) {
+    return { core: '#FFB74D', mid: '#FF9800', glow: '#FFE082', particle: '#FFF8E1', shell: '#F57C00', ribbon: '#00E5FF' };
   }
   return DEFAULT_THEME;
 }
