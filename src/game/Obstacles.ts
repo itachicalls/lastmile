@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { disposeObject3D } from './ModelUtils';
-import { isNearZ } from './platform';
+import { IS_MOBILE, isNearZ } from './platform';
 import { HAZARD_META } from '../data/hazards';
 import { buildHazardMesh } from './HazardVisuals';
 import type { ObstacleKind } from '../types';
@@ -29,6 +29,28 @@ export function obstacleClearHeight(kind: ObstacleKind): number {
   return HAZARD_META[kind].clearHeight;
 }
 
+function boostHazardMaterial(m: THREE.MeshStandardMaterial, night: number): void {
+  if (m.userData.baseColor === undefined && m.color) {
+    m.userData.baseColor = m.color.getHex();
+  }
+  if (IS_MOBILE && m.userData.baseColor !== undefined) {
+    const base = new THREE.Color(m.userData.baseColor as number);
+    base.lerp(new THREE.Color('#FFCC80'), 0.22);
+    m.color.copy(base);
+  }
+  if (m.userData.baseEmissiveIntensity === undefined) {
+    m.userData.baseEmissiveIntensity = m.emissiveIntensity;
+  }
+  const base = m.userData.baseEmissiveIntensity as number;
+  const lift = IS_MOBILE ? 0.12 + night * 0.22 : night * 0.18;
+  if (lift > 0.02 && !m.transparent) {
+    m.emissive.set(IS_MOBILE ? '#FFE0B2' : '#FFF3E0');
+    m.emissiveIntensity = base + lift;
+  } else {
+    m.emissiveIntensity = base;
+  }
+}
+
 export function updateObstacles(
   obstacles: ObstacleEntity[],
   time: number,
@@ -46,7 +68,10 @@ export function updateObstacles(
       if (c.userData.isGlow) {
         c.rotation.z = time * 0.25 + o.x;
         const m = c.material as THREE.MeshBasicMaterial;
-        if (m.opacity !== undefined) m.opacity = 0.32 + Math.sin(time * 2.5 + o.z) * 0.1;
+        if (m.opacity !== undefined) {
+          const base = (IS_MOBILE ? 0.48 : 0.32) + Math.sin(time * 2.5 + o.z) * 0.1;
+          m.opacity = base;
+        }
       }
       if (c.userData.isBob) {
         c.position.y = (c.userData.baseY as number | undefined) ?? c.position.y;
@@ -63,20 +88,11 @@ export function updateObstacles(
             (c.userData.baseEmissiveIntensity as number) +
             0.22 +
             Math.sin(time * 4 + blinkPhase) * 0.12 +
-            night * 0.35;
+            night * (IS_MOBILE ? 0.45 : 0.35);
         }
       }
-      if (c.material instanceof THREE.MeshStandardMaterial && !c.userData.isBlink) {
-        if (c.userData.baseEmissiveIntensity === undefined) {
-          c.userData.baseEmissiveIntensity = c.material.emissiveIntensity;
-        }
-        const base = c.userData.baseEmissiveIntensity as number;
-        if (night > 0.08 && !c.material.transparent) {
-          c.material.emissive.set('#FFF3E0');
-          c.material.emissiveIntensity = base + night * 0.18;
-        } else {
-          c.material.emissiveIntensity = base;
-        }
+      if (c.material instanceof THREE.MeshStandardMaterial && !c.userData.isBlink && !c.userData.isHazardPad) {
+        boostHazardMaterial(c.material, night);
       }
       if (c.userData.isSpin) {
         c.rotation.y = time * 2 + phase;

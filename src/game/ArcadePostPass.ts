@@ -12,7 +12,7 @@ export class ArcadePostPass extends Pass {
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: null },
-        vignette: { value: IS_MOBILE ? 0.28 : 0.38 },
+        vignette: { value: IS_MOBILE ? 0.18 : 0.38 },
         aberration: { value: IS_MOBILE ? 0.0012 : 0.0022 },
         saturation: { value: IS_MOBILE ? 1.06 : 1.12 },
         pulse: { value: 0 },

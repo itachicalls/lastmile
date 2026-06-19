@@ -86,7 +86,7 @@ export class World {
     this.districtId = theme.id;
     this.setupLighting(theme, levelLength);
     this.buildSky(theme);
-    const fogDensity = (IS_MOBILE ? 0.016 : 0.011) * (200 / theme.fogFar);
+    const fogDensity = (IS_MOBILE ? 0.009 : 0.011) * (200 / theme.fogFar);
     this.scene.fog = new THREE.FogExp2(theme.fog, fogDensity);
 
     // Grass field
@@ -148,7 +148,7 @@ export class World {
         emissiveMap: this.roadEmissiveTex,
         emissive: this.roadAccent.primary,
         emissiveIntensity: 0.1,
-        color: '#c8cdd2',
+        color: IS_MOBILE ? '#d4dae0' : '#c8cdd2',
         roughness: 0.76,
         metalness: 0.1,
         envMapIntensity: 0.45,
@@ -591,7 +591,9 @@ export class World {
   private applySkyLighting(night: number): void {
     const theme = this.skyTheme;
     const fx = nightEffectStrength(night);
-    const lightNight = lightingNightBlend(night);
+    let lightNight = lightingNightBlend(night);
+    if (IS_MOBILE) lightNight *= 0.72;
+    const mobileLift = IS_MOBILE ? 1.22 : 1;
     const fogColor = lerpColor(theme.fog, theme.id >= 6 ? '#120828' : '#050510', lightNight);
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.set(fogColor);
@@ -607,25 +609,26 @@ export class World {
     if (this.hemiLight) {
       this.hemiLight.color.copy(hemiSky);
       this.hemiLight.groundColor.copy(hemiGround);
-      this.hemiLight.intensity = theme.ambient * 0.78 * (1 - lightNight * 0.45);
+      this.hemiLight.intensity = theme.ambient * 0.78 * (1 - lightNight * 0.45) * mobileLift;
     }
     if (this.ambientLight) {
       const amb = new THREE.Color('#ffffff').lerp(new THREE.Color('#8899cc'), lightNight * 0.65);
       this.ambientLight.color.copy(amb);
       const vis = gameplayNightVisibility(night);
-      this.ambientLight.intensity = theme.ambient * 0.32 * (1 - lightNight * 0.42) + vis * 0.22;
+      this.ambientLight.intensity =
+        (theme.ambient * 0.32 * (1 - lightNight * 0.42) + vis * 0.22) * mobileLift + (IS_MOBILE ? 0.14 : 0);
     }
     if (this.sunLight) {
       const sunDay = new THREE.Color(theme.id >= 3 ? '#FFF0D0' : '#FFF8F0');
       const sunNight = new THREE.Color('#6688bb');
       this.sunLight.color.copy(sunDay.lerp(sunNight, lightNight));
-      this.sunLight.intensity = theme.sun * 0.88 * (1 - lightNight * 0.55);
+      this.sunLight.intensity = theme.sun * 0.88 * (1 - lightNight * 0.55) * mobileLift;
     }
     if (this.fillLight) {
       const fillDay = new THREE.Color(theme.skyBottom || theme.sky);
       const fillNight = new THREE.Color(theme.id >= 4 ? '#004D40' : '#1a237e');
       this.fillLight.color.copy(fillDay.lerp(fillNight, lightNight * 0.75));
-      this.fillLight.intensity = theme.ambient * 0.24 * (0.55 + lightNight * 0.45);
+      this.fillLight.intensity = theme.ambient * 0.24 * (0.55 + lightNight * 0.45) * mobileLift;
     }
     if (this.rimLight) {
       this.rimLight.intensity = 0.1 + (1 - lightNight) * 0.14;
@@ -640,12 +643,14 @@ export class World {
     }
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
-      const dayPop = 0.08 + (1 - lightNight) * 0.1;
-      rm.emissiveIntensity = dayPop + fx * (IS_MOBILE ? 0.38 : 0.55);
+      const dayPop = (IS_MOBILE ? 0.12 : 0.08) + (1 - lightNight) * (IS_MOBILE ? 0.14 : 0.1);
+      rm.emissiveIntensity = dayPop + fx * (IS_MOBILE ? 0.32 : 0.55);
       rm.emissive.set(this.roadAccent.primary).lerp(new THREE.Color(this.roadAccent.secondary), fx * 0.35);
       rm.roughness = 0.82 - lightNight * 0.1 - fx * 0.08;
       rm.metalness = 0.06 + fx * 0.14;
-      rm.color.set('#c8cdd2').lerp(new THREE.Color('#9aa8b8'), lightNight * 0.25);
+      const roadDay = IS_MOBILE ? '#d8dee4' : '#c8cdd2';
+      const roadNight = IS_MOBILE ? '#b8c2cc' : '#9aa8b8';
+      rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.18 : 0.25));
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;
@@ -1869,17 +1874,21 @@ export class World {
 
     const night = this.skyNight;
     const nightFx = this.skyNightFx;
-    const lightNight = lightingNightBlend(night);
+    let lightNight = lightingNightBlend(night);
+    if (IS_MOBILE) lightNight *= 0.72;
     const wetMul = 1 + this.wetFactor * (this.wetFactor > 0.45 ? 1 : 0.65);
 
     if (this.roadMesh) {
       const rm = this.roadMesh.material as THREE.MeshStandardMaterial;
-      const dayPop = 0.1 + (1 - lightNight) * 0.12;
-      const base = dayPop + nightFx * (IS_MOBILE ? 0.38 : 0.55);
+      const dayPop = (IS_MOBILE ? 0.12 : 0.1) + (1 - lightNight) * (IS_MOBILE ? 0.14 : 0.12);
+      const base = dayPop + nightFx * (IS_MOBILE ? 0.32 : 0.55);
       const pulse = 1 + Math.sin(time * 2.4) * 0.04 * nightFx;
       rm.emissiveIntensity = base * pulse * (turbo ? 1.12 : 1);
       rm.roughness = 0.82 - lightNight * 0.1 - this.wetFactor * 0.12;
       rm.metalness = 0.06 + nightFx * 0.14 + this.wetFactor * 0.14;
+      const roadDay = IS_MOBILE ? '#d8dee4' : '#c8cdd2';
+      const roadNight = IS_MOBILE ? '#b8c2cc' : '#9aa8b8';
+      rm.color.set(roadDay).lerp(new THREE.Color(roadNight), lightNight * (IS_MOBILE ? 0.18 : 0.25));
     }
     if (this.roadGlowMesh) {
       const gm = this.roadGlowMesh.material as THREE.MeshBasicMaterial;

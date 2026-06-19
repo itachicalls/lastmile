@@ -1,6 +1,8 @@
 import type { ObstacleKind } from '../types';
 import { pickRandomHazardForLevel } from '../data/hazards';
 
+import { IS_MOBILE } from './platform';
+
 /** Five full lanes including center — Temple Run style */
 export const LANES = [-3.2, -1.6, 0, 1.6, 3.2] as const;
 
@@ -10,7 +12,7 @@ export function pickRandomLane(): number {
 
 /** Pick 1 lane; occasionally 2, but keep center from feeling overcrowded */
 export function pickObstacleLanes(): number[] {
-  const count = Math.random() < 0.16 ? 2 : 1;
+  const count = Math.random() < (IS_MOBILE ? 0.08 : 0.16) ? 2 : 1;
   const picked: number[] = [];
   const used = new Set<number>();
   while (picked.length < count) {
@@ -31,7 +33,8 @@ export function pickObstacleForLevel(levelId: string): ObstacleKind {
 }
 
 export function obstacleSpacing(difficulty: number): number {
-  return Math.max(16, 28 - difficulty * 1.1);
+  const base = Math.max(16, 28 - difficulty * 1.1);
+  return IS_MOBILE ? base + 7 : base;
 }
 
 export function runnerSpacing(difficulty: number): number {

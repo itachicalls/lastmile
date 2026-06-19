@@ -238,7 +238,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.BasicShadowMap;
     if (ENABLE_TONE_MAPPING) {
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = IS_MOBILE ? 0.92 : 1.02;
+      this.renderer.toneMappingExposure = IS_MOBILE ? 1.1 : 1.02;
     } else {
       this.renderer.toneMapping = THREE.NoToneMapping;
     }
@@ -354,7 +354,7 @@ export class Game {
 
     this.applyUpgrades();
     const diff = level.difficulty;
-    const speed = (IS_MOBILE ? 18 : 16.4) + diff * (IS_MOBILE ? 0.4 : 0.32);
+    const speed = (IS_MOBILE ? 15.2 : 16.4) + diff * (IS_MOBILE ? 0.28 : 0.32);
 
     this.run = {
       ...INITIAL_RUN,
@@ -908,7 +908,7 @@ export class Game {
     const ahead = this.player.z + spawnAhead;
     const maxPerFrame = 1;
 
-    const maxObstacles = IS_MOBILE ? 9 : 12;
+    const maxObstacles = IS_MOBILE ? 7 : 12;
     const maxRunners = IS_MOBILE ? 9 : 12;
     const maxPowerUps = IS_MOBILE ? 6 : 10;
 
@@ -1532,17 +1532,17 @@ export class Game {
     if (ENABLE_TONE_MAPPING) {
       const nightFx = this.world.getNightFx();
       const vis = this.world.getGameplayNight();
-      const base = IS_MOBILE ? 0.96 : 1.06;
-      this.renderer.toneMappingExposure = base * (1 - nightFx * 0.08) + vis * 0.1;
+      const base = IS_MOBILE ? 1.1 : 1.06;
+      this.renderer.toneMappingExposure = base * (1 - nightFx * (IS_MOBILE ? 0.04 : 0.08)) + vis * (IS_MOBILE ? 0.14 : 0.1);
     }
     if (this.pipeline) {
       const nightFx = this.world.getNightFx();
       const combat = this.spectacle.getCombatIntensity();
       const pulse = this.spectacle.getPostPulse() + this.shootPulse * 0.35;
       const bloom =
-        (IS_MOBILE ? 0.22 : 0.24) +
-        nightFx * (IS_MOBILE ? 0.2 : 0.28) +
-        combat * (IS_MOBILE ? 0.08 : 0.12);
+        (IS_MOBILE ? 0.26 : 0.24) +
+        nightFx * (IS_MOBILE ? 0.16 : 0.28) +
+        combat * (IS_MOBILE ? 0.06 : 0.12);
       this.pipeline.setBloomStrength(bloom);
       this.pipeline.setGradePulse(pulse);
       this.pipeline.render();
