@@ -1464,11 +1464,31 @@ kbd {
     max-width: 96vw;
   }
 
+  .hud-bottom-mobile {
+    gap: 8px;
+  }
+
   .hud-bottom-mobile .action-btn {
+    width: 62px;
+    height: 62px;
+    min-width: 62px;
+    min-height: 62px;
+    font-size: 0.55rem;
+  }
+
+  .hud-bottom-mobile .shoot-btn {
     width: 68px;
     height: 68px;
     min-width: 68px;
     min-height: 68px;
+  }
+
+  .hud-bottom-mobile .action-icon {
+    font-size: 1.05rem;
+  }
+
+  .hud-bottom-mobile .shoot-btn .action-icon {
+    font-size: 1.25rem;
   }
 
   .hud-actions-right .action-btn {

@@ -152,7 +152,7 @@ export class Player {
   slide(): boolean {
     if (this.isJumping || this.isSliding) return false;
     this.isSliding = true;
-    this.slideTimer = 0.62;
+    this.slideTimer = 0.82;
     return true;
   }
 

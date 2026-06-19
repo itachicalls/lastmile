@@ -359,7 +359,7 @@ export class Game {
     this.spawnHorizon = this.levelLength - 30;
 
     this.nextObstacleZ = 30;
-    this.nextVaultZ = 48 + Math.floor(Math.random() * 12);
+    this.nextVaultZ = 78 + Math.floor(Math.random() * 24);
     this.nextRunnerZ = 45 + Math.random() * 20;
     this.nextPowerUpZ = 28 + Math.random() * 12;
     this.nextPackageZ = 20;
@@ -771,11 +771,11 @@ export class Game {
       obsN++;
     }
 
-    const maxVaults = IS_MOBILE ? 6 : 10;
+    const maxVaults = IS_MOBILE ? 3 : 5;
     if (this.nextVaultZ < ahead && this.nextVaultZ < this.spawnHorizon && this.vaultGates.filter((v) => !v.resolved).length < maxVaults) {
       const clearance = this.vaultGates.length % 2 === 0 ? 'jump' : 'slide';
       this.vaultGates.push(createVaultGate(this.scene, this.nextVaultZ, clearance));
-      this.nextVaultZ += 36 + Math.random() * 18 + diff * 0.8;
+      this.nextVaultZ += 58 + Math.random() * 32 + diff * 0.35;
     }
 
     let runN = 0;
@@ -1024,34 +1024,56 @@ export class Game {
     }
   }
 
+  /** Vault gates cost one heart on a miss — never instant death unless you're on your last heart. */
+  private takeVaultMiss(): void {
+    if (this.isProtected()) return;
+    this.run.integrity--;
+    this.run.integrityLost = true;
+    this.hurtIFrames = 1.8;
+    this.obstacleCooldown = 0.8;
+    this.player.flashHurt();
+    this.shake.shake(0.65);
+    this.cb.onDamageFlash();
+    this.particles.hitBurst(this.player.x, this.player.z);
+    if (this.run.integrity <= 0) {
+      this.die('stolen');
+    } else {
+      this.emitHud(this.level.timeLimit - this.elapsed);
+    }
+  }
+
   private checkVaultGates(): void {
     this.vaultHint = '';
+    const gateDepth = 2.4;
+    const gateStart = -1.5;
 
     for (const v of this.vaultGates) {
       if (v.resolved) continue;
 
       const dist = v.z - this.player.z;
-      if (dist > 0 && dist < 26) {
-        this.vaultHint = v.clearance === 'jump' ? '⬆ JUMP the bar!' : '⬇ SLIDE under!';
+      if (dist > 0 && dist < 18) {
+        this.vaultHint = v.clearance === 'jump' ? '⬆ Jump' : '⬇ Slide';
       }
 
       if (Math.abs(this.player.x) > 3.6) continue;
 
-      if (this.player.z >= v.z - 0.2 && this.player.z <= v.z + 1.2) {
-        const cleared =
-          v.clearance === 'jump'
-            ? this.player.jumpY > 0.22 || this.player.isJumping
-            : this.player.isSliding;
-        if (!cleared && this.player.z >= v.z - 0.05) {
-          v.resolved = true;
-          this.takeHit('obstacle');
-          return;
-        }
+      const inZone = this.player.z >= v.z + gateStart && this.player.z <= v.z + gateDepth;
+      if (!inZone) continue;
+
+      const jumping = this.player.jumpY > 0.1 || this.player.isJumping;
+      const sliding = this.player.isSliding;
+      const cleared = v.clearance === 'jump' ? jumping : sliding;
+      const wrongAction = (v.clearance === 'jump' && sliding) || (v.clearance === 'slide' && jumping);
+      const atBarrier = this.player.z >= v.z - 0.15;
+
+      if (!v.penalized && atBarrier && (wrongAction || !cleared)) {
+        v.penalized = true;
+        this.takeVaultMiss();
       }
 
-      if (this.player.z > v.z + 1.0) {
+      if (this.player.z > v.z + gateDepth - 0.35) {
         v.resolved = true;
-        this.run.coins += 4;
+        if (cleared && !v.penalized) this.run.coins += 4;
       }
     }
   }

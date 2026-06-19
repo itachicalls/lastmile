@@ -56,10 +56,10 @@ export type VaultGateEntity = {
   z: number;
   clearance: 'jump' | 'slide';
   resolved: boolean;
+  penalized: boolean;
   topPanel: THREE.Group;
   bottomPanel: THREE.Group;
   barrierMesh: THREE.Mesh;
-  label: THREE.Sprite;
 };
 
 const BLOCKER_THEME: Record<BlockerKind, { accent: string; light: string; door: string; labelBg: string }> = {
@@ -364,6 +364,12 @@ export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
   return { kind: 'dropoff', mesh: group, z, reached: false, platform, rings, beam, holoSign };
 }
 
+const VAULT_BAND_H = 2.45;
+const VAULT_BOTTOM_Y = 0.62;
+const VAULT_TOP_Y = 3.12;
+const VAULT_DIVIDER_Y = 1.82;
+const VAULT_GATE_DEPTH = 1.35;
+
 /** Stacked green/red gate bands — jump clears the lower band, slide clears the upper band */
 export function createVaultGate(
   scene: THREE.Scene,
@@ -377,23 +383,37 @@ export function createVaultGate(
   const slideSafe = clearance === 'slide';
 
   for (const x of [-3.85, 3.85]) {
-    addMesh(group, new THREE.BoxGeometry(0.16, 3.65, 0.16), mat(FRAME_COLOR, { roughness: 0.35, metalness: 0.15 }), x, 1.82, 0.05);
+    addMesh(
+      group,
+      new THREE.BoxGeometry(0.16, 4.15, VAULT_GATE_DEPTH),
+      mat(FRAME_COLOR, { roughness: 0.35, metalness: 0.15 }),
+      x,
+      2.05,
+      0.05
+    );
     addMesh(group, new THREE.BoxGeometry(0.22, 0.14, 0.22), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), x, 0.07, 0.05);
-    addMesh(group, new THREE.BoxGeometry(0.22, 0.14, 0.22), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), x, 3.58, 0.05);
+    addMesh(group, new THREE.BoxGeometry(0.22, 0.14, 0.22), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), x, 4.08, 0.05);
   }
 
-  const topPanel = makeVaultGateBand(group, 2.45, slideSafe);
-  const bottomPanel = makeVaultGateBand(group, 0.95, jumpSafe);
+  const topPanel = makeVaultGateBand(group, VAULT_TOP_Y, slideSafe);
+  const bottomPanel = makeVaultGateBand(group, VAULT_BOTTOM_Y, jumpSafe);
 
-  addMesh(group, new THREE.BoxGeometry(7.9, 0.1, 0.14), mat('#37474F', { metalness: 0.45, roughness: 0.5 }), 0, 1.68, 0.06);
+  addMesh(
+    group,
+    new THREE.BoxGeometry(7.9, 0.1, VAULT_GATE_DEPTH),
+    mat('#37474F', { metalness: 0.45, roughness: 0.5 }),
+    0,
+    VAULT_DIVIDER_Y,
+    0.06
+  );
 
-  const barrierY = jumpSafe ? 0.52 : 1.52;
+  const barrierY = jumpSafe ? 0.48 : 1.58;
   const barrierMesh = addMesh(
     group,
-    new THREE.BoxGeometry(7.9, 0.22, 0.28),
+    new THREE.BoxGeometry(7.9, 0.2, VAULT_GATE_DEPTH * 0.85),
     mat(jumpSafe ? '#F9A825' : '#7B1FA2', {
       emissive: jumpSafe ? '#F57C00' : '#6A1B9A',
-      emissiveIntensity: 0.18,
+      emissiveIntensity: 0.15,
       roughness: 0.5,
     }),
     0,
@@ -403,7 +423,7 @@ export function createVaultGate(
   for (let i = 0; i < 8; i++) {
     addMesh(
       barrierMesh,
-      new THREE.BoxGeometry(0.12, 0.24, 0.04),
+      new THREE.BoxGeometry(0.12, 0.22, 0.04),
       mat(i % 2 === 0 ? '#F9A825' : '#212121', { roughness: 0.7 }),
       -3.4 + i * 0.95,
       0,
@@ -411,27 +431,18 @@ export function createVaultGate(
     );
   }
 
-  const jumpLabel = makeTextSprite('⬆ JUMP', '#FFFFFF', 'rgba(27,94,32,0.92)');
-  jumpLabel.position.set(0, 0.95, 0.42);
-  jumpLabel.scale.set(2.6, 0.65, 1);
-  group.add(jumpLabel);
-
-  const slideLabel = makeTextSprite('⬇ SLIDE', '#FFFFFF', 'rgba(27,94,32,0.92)');
-  slideLabel.position.set(0, 2.45, 0.42);
-  slideLabel.scale.set(2.6, 0.65, 1);
-  group.add(slideLabel);
-
-  const label = makeTextSprite(
-    jumpSafe ? '⬆ JUMP!' : '⬇ SLIDE!',
-    '#FFFFFF',
-    jumpSafe ? 'rgba(46,125,50,0.95)' : 'rgba(46,125,50,0.95)'
-  );
-  label.position.set(0, 1.68, 0.55);
-  label.scale.set(3.0, 0.75, 1);
-  group.add(label);
-
   scene.add(group);
-  return { kind: 'vault', mesh: group, z, clearance, resolved: false, topPanel, bottomPanel, barrierMesh, label };
+  return {
+    kind: 'vault',
+    mesh: group,
+    z,
+    clearance,
+    resolved: false,
+    penalized: false,
+    topPanel,
+    bottomPanel,
+    barrierMesh,
+  };
 }
 
 export function animateVaultGate(v: VaultGateEntity, time: number): void {
@@ -442,7 +453,6 @@ export function animateVaultGate(v: VaultGateEntity, time: number): void {
   const pulse = 1 + Math.sin(time * 3.5) * 0.018;
   v.topPanel.scale.set(pulse, pulse, pulse);
   v.bottomPanel.scale.set(pulse, pulse, pulse);
-  v.label.position.y = 1.68 + Math.sin(time * 3) * 0.04;
 }
 
 function makeVaultGateBand(parent: THREE.Group, y: number, safe: boolean): THREE.Group {
@@ -450,16 +460,19 @@ function makeVaultGateBand(parent: THREE.Group, y: number, safe: boolean): THREE
   panel.position.set(0, y, 0.08);
 
   const tex = makeGatePanelTexture(safe);
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(7.55, 1.72),
-    new THREE.MeshBasicMaterial({
-      map: tex,
-      transparent: true,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
-  );
-  panel.add(mesh);
+  const bandMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  for (const dz of [-0.42, 0, 0.42]) {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(7.55, VAULT_BAND_H), bandMat);
+    mesh.position.z = dz;
+    panel.add(mesh);
+  }
+
   parent.add(panel);
   return panel;
 }

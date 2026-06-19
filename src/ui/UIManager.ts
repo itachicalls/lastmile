@@ -343,7 +343,7 @@ export class UIManager {
         <div class="fork-hint hidden" id="fork-hint"></div>
         <div class="screen-blur hidden" id="screen-blur"></div>
 
-        <div class="tap-hint" id="tap-hint">${IS_MOBILE ? 'Jump · Slide center · Tap screen to shoot' : 'Jump · Slide · Shoot · Swerve at forks!'}</div>
+        <div class="tap-hint" id="tap-hint">${IS_MOBILE ? 'Jump · Mail · Slide — tap screen also shoots' : 'Jump · Slide · Shoot · Swerve at forks!'}</div>
 
         <div class="combat-banner hidden" id="combat-banner">
           <div class="combat-title" id="combat-title">⚠ INTERCEPT!</div>
@@ -362,16 +362,16 @@ export class UIManager {
             <span class="action-icon">⬆</span>
             <span>JUMP</span>
           </button>
+          <button class="action-btn shoot-btn" id="shoot-btn" title="Shoot">
+            <span class="action-icon" id="shoot-icon">📧</span>
+            <span id="shoot-label">${IS_MOBILE ? 'MAIL' : 'SHOOT'}</span>
+            <div class="ability-cd hidden" id="shoot-cd"></div>
+          </button>
           <button class="action-btn slide-btn" id="slide-btn" title="Slide${IS_MOBILE ? '' : ' (S)'}">
             <span class="action-icon">⬇</span>
             <span>SLIDE</span>
           </button>
-          ${IS_MOBILE ? '' : `<button class="action-btn shoot-btn" id="shoot-btn" title="Shoot (click)">
-            <span class="action-icon" id="shoot-icon">📧</span>
-            <span id="shoot-label">SHOOT</span>
-            <div class="ability-cd hidden" id="shoot-cd"></div>
-          </button>
-          <button class="action-btn special-btn" id="special-btn" title="Ground Quake (E) — 3 hits">
+          ${IS_MOBILE ? '' : `<button class="action-btn special-btn" id="special-btn" title="Ground Quake (E) — 3 hits">
             <div class="special-meter"><div class="special-fill" id="special-fill"></div></div>
             <span class="action-icon">💥</span>
             <span id="special-label">QUAKE</span>
