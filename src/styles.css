@@ -668,6 +668,13 @@ h1 {
   font-size: 0.85rem;
   margin-bottom: 12px;
 }
+.briefing-hazard {
+  color: #FFAB91;
+  font-weight: 800;
+  font-size: 0.88rem;
+  margin-bottom: 4px;
+  letter-spacing: 0.03em;
+}
 .briefing-box {
   max-width: 560px;
   background: rgba(255,255,255,0.08);

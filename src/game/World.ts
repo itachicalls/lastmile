@@ -29,6 +29,7 @@ export class World {
   private sunLight!: THREE.DirectionalLight;
   private skyPhase = -1;
   private skyTick = 0;
+  private skyNight = 0;
   private playerZ = 0;
   private cullTimer = 0;
   private skyEffects: SkyEffects | null = null;
@@ -432,7 +433,11 @@ export class World {
     this.skyEffects?.setNight(night);
 
     if (this.skyTexture) this.skyTexture.needsUpdate = true;
+  }
 
+  /** Smooth lighting every frame — independent of canvas repaint rate. */
+  private applySkyLighting(night: number): void {
+    const theme = this.skyTheme;
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.color.set(lerpColor(theme.fog, '#050510', night));
     }
@@ -449,14 +454,17 @@ export class World {
   }
 
   private updateSkyCycle(time: number, dt: number): void {
-    this.skyTick += dt;
-    const night = (Math.sin(time * 0.035) + 1) / 2;
+    // Triangle wave: day → night → day, ~75 s per full cycle
+    const cycleT = (time % 75) / 75;
+    const night = cycleT < 0.5 ? cycleT * 2 : (1 - cycleT) * 2;
+    this.skyNight = night;
+
     this.skyEffects?.setNight(night);
+    this.applySkyLighting(night);
+
+    this.skyTick += dt;
     if (this.skyTick < SKY_UPDATE_SEC) return;
     this.skyTick = 0;
-    const threshold = IS_MOBILE ? 0.035 : 0.02;
-    if (Math.abs(night - this.skyPhase) < threshold) return;
-    this.skyPhase = night;
     this.paintSky(night, this.skyTheme);
   }
 

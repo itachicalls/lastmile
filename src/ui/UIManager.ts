@@ -11,6 +11,7 @@ import { menuBackdropHtml } from './menuBackdrop';
 import { mountCharacterPreview } from './CharacterPreview';
 import { IS_MOBILE } from '../game/platform';
 import { setGameActive } from '../game/viewport';
+import { hazardForLevel, hazardLabel } from '../data/hazards';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -189,6 +190,7 @@ export class UIManager {
       <div class="screen briefing-screen screen-glass">
         <div class="briefing-badge">${district.name}</div>
         <h1>${lvl.name}</h1>
+        <div class="briefing-hazard">⚠ Level hazard: ${hazardLabel(hazardForLevel(levelId))}</div>
         <div class="briefing-box">${lvl.briefing}</div>
         <div class="controls-grid">
           <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer lanes</div>

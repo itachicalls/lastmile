@@ -13,7 +13,27 @@ export type EnemyType = 'pickpocket' | 'rival' | 'drone' | 'boss';
 
 export type BlockerKind = 'scan' | 'stamp' | 'ram' | 'toll';
 
-export type ObstacleKind = 'barricade' | 'pod' | 'cones' | 'debris';
+export type ObstacleKind =
+  | 'newsbox-row'
+  | 'dog-fence'
+  | 'party-tent'
+  | 'bin-alley'
+  | 'hoa-gate'
+  | 'news-stand'
+  | 'food-cart'
+  | 'alien-beacon'
+  | 'fallen-sign'
+  | 'checkpoint'
+  | 'cactus-wall'
+  | 'mirage-rock'
+  | 'rockslide'
+  | 'sand-drift'
+  | 'skull-rock'
+  | 'fallen-log'
+  | 'temple-rubble'
+  | 'thorn-bramble'
+  | 'flood-wreck'
+  | 'totem-gate';
 
 export type SegmentType =
   | { kind: 'gate'; z: number; safe: 'left' | 'right' }

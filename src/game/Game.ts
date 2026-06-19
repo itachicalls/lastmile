@@ -51,7 +51,7 @@ import {
 import {
   pickObstacleLanes,
   pickRandomLane,
-  pickRandomObstacle,
+  pickObstacleForLevel,
   obstacleSpacing,
   runnerSpacing,
   powerUpSpacing,
@@ -738,7 +738,7 @@ export class Game {
       const lanes = pickObstacleLanes();
       const laneLimit = IS_MOBILE ? 1 : lanes.length;
       for (let i = 0; i < laneLimit; i++) {
-        this.obstacles.push(createObstacle(this.scene, pickRandomObstacle(), lanes[i], this.nextObstacleZ));
+        this.obstacles.push(createObstacle(this.scene, pickObstacleForLevel(this.level.id), lanes[i], this.nextObstacleZ));
       }
       this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 6;
       obsN++;
