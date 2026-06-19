@@ -4,11 +4,14 @@ import { Player } from './Player';
 import { Convoy } from './Convoy';
 import {
   createRouteGate,
+  createVaultGate,
   createDropoff,
   disposeEntity,
   animateGate,
+  animateVaultGate,
   animateDropoff,
   type GateEntity,
+  type VaultGateEntity,
   type DropoffEntity,
 } from './Gates';
 import { createCoinLine, updateCoins, tryCollectCoin, disposeCoins, type CoinEntity } from './Coins';
@@ -89,7 +92,9 @@ export type HudData = {
   specialShakes: number;
   shootReady: boolean;
   jumpReady: boolean;
+  slideReady: boolean;
   forkHint?: string;
+  vaultHint?: string;
   powerUpLabel?: string;
   invincible: boolean;
   screenBlur?: boolean;
@@ -111,6 +116,7 @@ export class Game {
   private save: SaveData;
 
   private routeGates: GateEntity[] = [];
+  private vaultGates: VaultGateEntity[] = [];
   private runners: RunnerEntity[] = [];
   private coins: CoinEntity[] = [];
   private packagePickups: PackagePickup[] = [];
@@ -165,10 +171,12 @@ export class Game {
   private lastVpOffTop = 0;
   private lastVpOffLeft = 0;
   private forkHint = '';
+  private vaultHint = '';
   private powerUpLabel = '';
   private deathReason: DeathReason = 'stolen';
 
   private nextObstacleZ = 35;
+  private nextVaultZ = 52;
   private nextRunnerZ = 50;
   private nextPowerUpZ = 80;
   private nextPackageZ = 25;
@@ -261,7 +269,7 @@ export class Game {
     const onTap = (e: PointerEvent) => {
       if (!this.running || this.dead) return;
       const t = e.target as HTMLElement;
-      if (t.closest('#steer-left, #steer-right, #ability-btn, #special-btn, #jump-btn, #shoot-btn, #autofire-toggle, .hud-panel, .btn')) return;
+      if (t.closest('#steer-left, #steer-right, #ability-btn, #special-btn, #jump-btn, #slide-btn, #shoot-btn, #autofire-toggle, .hud-panel, .btn')) return;
       this.shoot();
     };
     hudEl.addEventListener('pointerdown', onTap);
@@ -286,6 +294,7 @@ export class Game {
     this.hudTimer = 0;
     this.lastConvoyCount = -1;
     this.forkHint = '';
+    this.vaultHint = '';
     this.powerUpLabel = '';
     this.throws = [];
     this.smokeTimer = 0;
@@ -350,6 +359,7 @@ export class Game {
     this.spawnHorizon = this.levelLength - 30;
 
     this.nextObstacleZ = 30;
+    this.nextVaultZ = 48 + Math.floor(Math.random() * 12);
     this.nextRunnerZ = 45 + Math.random() * 20;
     this.nextPowerUpZ = 28 + Math.random() * 12;
     this.nextPackageZ = 20;
@@ -369,6 +379,8 @@ export class Game {
     for (const seg of level.segments) {
       if (seg.kind === 'gate') {
         this.routeGates.push(createRouteGate(this.scene, seg.z, seg.safe));
+      } else if (seg.kind === 'vault') {
+        this.vaultGates.push(createVaultGate(this.scene, seg.z, seg.clearance));
       } else if (seg.kind === 'dropoff') {
         this.dropoff = createDropoff(this.scene, seg.z);
       }
@@ -407,6 +419,10 @@ export class Game {
         e.preventDefault();
         if (!e.repeat) this.jump();
       }
+      if (e.code === 'KeyS' || e.code === 'ArrowDown') {
+        e.preventDefault();
+        if (!e.repeat) this.slide();
+      }
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') e.preventDefault();
       if (e.code === 'ArrowRight' || e.code === 'KeyD') e.preventDefault();
     });
@@ -436,6 +452,11 @@ export class Game {
   jump(): void {
     if (!this.running || this.dead) return;
     if (this.player.jump()) this.shake.shake(0.08);
+  }
+
+  slide(): void {
+    if (!this.running || this.dead) return;
+    if (this.player.slide()) this.shake.shake(0.05);
   }
 
   /** Left click / tap — mail if no packages, package throw if stocked */
@@ -626,6 +647,9 @@ export class Game {
     for (const g of this.routeGates) {
       if (!g.resolved && isNearZ(g.z, pz, IS_MOBILE ? 42 : 55)) animateGate(g, this.gameTime);
     }
+    for (const v of this.vaultGates) {
+      if (!v.resolved && isNearZ(v.z, pz, IS_MOBILE ? 42 : 55)) animateVaultGate(v, this.gameTime);
+    }
     if (this.dropoff && isNearZ(this.dropoff.z, pz, IS_MOBILE ? 42 : 55)) animateDropoff(this.dropoff, this.gameTime);
     updateObstacles(this.obstacles, this.gameTime, pz);
 
@@ -651,6 +675,7 @@ export class Game {
     this.checkObstacles();
     this.checkRunners();
     this.checkRouteGates();
+    this.checkVaultGates();
     this.checkDropoff();
     this.checkLose();
 
@@ -712,8 +737,10 @@ export class Game {
       specialReady: this.specialCharge >= 1 && this.specialShakesLeft <= 0,
       specialShakes: this.specialShakesLeft,
       shootReady: this.shootCd <= 0,
-      jumpReady: !this.player.isJumping,
+      jumpReady: !this.player.isJumping && !this.player.isSliding,
+      slideReady: !this.player.isJumping && !this.player.isSliding,
       forkHint: this.forkHint || undefined,
+      vaultHint: this.vaultHint || undefined,
       powerUpLabel: this.powerUpLabel || undefined,
       invincible: this.invincibleTimer > 0,
       screenBlur: this.blurTimer > 0,
@@ -742,6 +769,13 @@ export class Game {
       }
       this.nextObstacleZ += obstacleSpacing(diff) + Math.random() * 6;
       obsN++;
+    }
+
+    const maxVaults = IS_MOBILE ? 6 : 10;
+    if (this.nextVaultZ < ahead && this.nextVaultZ < this.spawnHorizon && this.vaultGates.filter((v) => !v.resolved).length < maxVaults) {
+      const clearance = this.vaultGates.length % 2 === 0 ? 'jump' : 'slide';
+      this.vaultGates.push(createVaultGate(this.scene, this.nextVaultZ, clearance));
+      this.nextVaultZ += 36 + Math.random() * 18 + diff * 0.8;
     }
 
     let runN = 0;
@@ -990,6 +1024,38 @@ export class Game {
     }
   }
 
+  private checkVaultGates(): void {
+    this.vaultHint = '';
+
+    for (const v of this.vaultGates) {
+      if (v.resolved) continue;
+
+      const dist = v.z - this.player.z;
+      if (dist > 0 && dist < 26) {
+        this.vaultHint = v.clearance === 'jump' ? '⬆ JUMP the bar!' : '⬇ SLIDE under!';
+      }
+
+      if (Math.abs(this.player.x) > 3.6) continue;
+
+      if (this.player.z >= v.z - 0.2 && this.player.z <= v.z + 1.2) {
+        const cleared =
+          v.clearance === 'jump'
+            ? this.player.jumpY > 0.22 || this.player.isJumping
+            : this.player.isSliding;
+        if (!cleared && this.player.z >= v.z - 0.05) {
+          v.resolved = true;
+          this.takeHit('obstacle');
+          return;
+        }
+      }
+
+      if (this.player.z > v.z + 1.0) {
+        v.resolved = true;
+        this.run.coins += 4;
+      }
+    }
+  }
+
   private checkDropoff(): void {
     if (!this.dropoff || this.dropoff.reached) return;
     if (this.player.z >= this.dropoff.z - 3) {
@@ -1100,6 +1166,7 @@ export class Game {
 
   private cleanup(): void {
     for (const g of this.routeGates) disposeEntity(g.mesh, this.scene);
+    for (const v of this.vaultGates) disposeEntity(v.mesh, this.scene);
     disposeRunners(this.runners, this.scene);
     disposeCoins(this.coins, this.scene);
     disposePickups(this.packagePickups, this.scene);
@@ -1109,6 +1176,7 @@ export class Game {
     if (this.dropoff) disposeEntity(this.dropoff.mesh, this.scene);
     this.particles.clear();
     this.routeGates = [];
+    this.vaultGates = [];
     this.runners = [];
     this.coins = [];
     this.packagePickups = [];

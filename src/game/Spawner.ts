@@ -1,5 +1,5 @@
 import type { ObstacleKind } from '../types';
-import { hazardForLevel } from '../data/hazards';
+import { pickRandomHazardForLevel } from '../data/hazards';
 
 /** Five full lanes including center — Temple Run style */
 export const LANES = [-3.2, -1.6, 0, 1.6, 3.2] as const;
@@ -25,9 +25,9 @@ export function pickObstacleLanes(): number[] {
   return picked;
 }
 
-/** Each level spawns its signature hazard only. */
+/** Random hazard from the level's pool of four unique types. */
 export function pickObstacleForLevel(levelId: string): ObstacleKind {
-  return hazardForLevel(levelId);
+  return pickRandomHazardForLevel(levelId);
 }
 
 export function obstacleSpacing(difficulty: number): number {

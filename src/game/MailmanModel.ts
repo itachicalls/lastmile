@@ -23,7 +23,7 @@ function buildLeg(x: number, pants: THREE.Material, boot: THREE.Material): THREE
   addMesh(leg, new THREE.CapsuleGeometry(0.085, 0.22, 5, 8), pants, 0, -0.12, 0);
   addMesh(leg, new THREE.CapsuleGeometry(0.075, 0.18, 5, 8), pants, 0, -0.38, 0);
   addMesh(leg, new THREE.BoxGeometry(0.15, 0.09, 0.26), boot, 0, -0.54, 0.05);
-  addMesh(leg, new THREE.BoxGeometry(0.12, 0.04, 0.08), mat('#00E5FF', { emissive: '#00E5FF', emissiveIntensity: 0.4 }), 0, -0.54, 0.18);
+  addMesh(leg, new THREE.BoxGeometry(0.12, 0.04, 0.06), mat('#37474F', { roughness: 0.85 }), 0, -0.54, 0.16);
   return leg;
 }
 
@@ -96,11 +96,12 @@ export function createMailmanMesh(character: CharacterDef): MailmanMesh {
   const visor = mat('#80DEEA', { emissive: '#00BCD4', emissiveIntensity: 0.55, metalness: 0.65, transparent: true, opacity: 0.88 });
 
   const hoverboard = new THREE.Group();
-  addMesh(hoverboard, new THREE.BoxGeometry(0.82, 0.09, 1.15), mat('#37474F', { metalness: 0.55, emissive: '#00E5FF', emissiveIntensity: 0.2 }), 0, 0.06, 0.04);
-  addMesh(hoverboard, new THREE.BoxGeometry(0.7, 0.035, 1.0), mat('#00BCD4', { emissive: '#00E5FF', emissiveIntensity: 0.55 }), 0, 0.11, 0.04);
+  addMesh(hoverboard, new THREE.BoxGeometry(0.82, 0.09, 1.15), mat('#37474F', { metalness: 0.45, roughness: 0.55 }), 0, 0.06, 0.04);
+  addMesh(hoverboard, new THREE.BoxGeometry(0.7, 0.035, 1.0), mat('#546E7A', { metalness: 0.35, roughness: 0.65 }), 0, 0.11, 0.04);
+  addMesh(hoverboard, new THREE.BoxGeometry(0.55, 0.02, 0.85), mat('#263238', { roughness: 0.9 }), 0, 0.13, 0.04);
   for (const sx of [-0.3, 0.3]) {
-    addMesh(hoverboard, new THREE.CylinderGeometry(0.1, 0.1, 0.035, 12), mat('#B0BEC5', { metalness: 0.75 }), sx, 0.05, -0.38);
-    addMesh(hoverboard, new THREE.TorusGeometry(0.11, 0.018, 8, 16), mat('#00E5FF', { emissive: '#00E5FF', emissiveIntensity: 0.9 }), sx, 0.05, -0.38, false);
+    addMesh(hoverboard, new THREE.CylinderGeometry(0.1, 0.1, 0.035, 12), mat('#78909C', { metalness: 0.65, roughness: 0.4 }), sx, 0.05, -0.38);
+    addMesh(hoverboard, new THREE.TorusGeometry(0.11, 0.014, 8, 16), mat('#455A64', { metalness: 0.5 }), sx, 0.05, -0.38, false);
   }
   mesh.add(hoverboard);
 

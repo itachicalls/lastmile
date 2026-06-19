@@ -50,6 +50,17 @@ export type DropoffEntity = {
   holoSign: THREE.Sprite;
 };
 
+export type VaultGateEntity = {
+  kind: 'vault';
+  mesh: THREE.Group;
+  z: number;
+  clearance: 'jump' | 'slide';
+  resolved: boolean;
+  barMesh: THREE.Mesh;
+  beamMesh?: THREE.Mesh;
+  label: THREE.Sprite;
+};
+
 const BLOCKER_THEME: Record<BlockerKind, { accent: string; light: string; door: string; labelBg: string }> = {
   scan: { accent: '#00BFA5', light: '#69F0AE', door: '#00897B', labelBg: 'rgba(0,100,85,0.92)' },
   stamp: { accent: '#9C27B0', light: '#EA80FC', door: '#6A1B9A', labelBg: 'rgba(80,20,100,0.92)' },
@@ -258,7 +269,7 @@ export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
     const ring = addMesh(
       group,
       new THREE.RingGeometry(r0, r1, seg),
-      new THREE.MeshBasicMaterial({ color: '#00E5FF', transparent: true, opacity: op, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: '#FFD54F', transparent: true, opacity: op * 0.55, side: THREE.DoubleSide }),
       0,
       y,
       0,
@@ -350,6 +361,96 @@ export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
 
   scene.add(group);
   return { kind: 'dropoff', mesh: group, z, reached: false, platform, rings, beam, holoSign };
+}
+
+/** Jump-over or slide-under barrier spanning the lane */
+export function createVaultGate(
+  scene: THREE.Scene,
+  z: number,
+  clearance: 'jump' | 'slide'
+): VaultGateEntity {
+  const group = new THREE.Group();
+  group.position.set(0, 0, z);
+
+  for (const x of [-3.8, 3.8]) {
+    addMesh(group, new THREE.BoxGeometry(0.14, clearance === 'jump' ? 1.05 : 2.35, 0.14), mat('#455A64', { metalness: 0.45 }), x, clearance === 'jump' ? 0.52 : 1.17, 0);
+    addMesh(
+      group,
+      new THREE.SphereGeometry(0.1, 8, 8),
+      mat(clearance === 'jump' ? '#FF9800' : '#AB47BC', { emissive: clearance === 'jump' ? '#FF9800' : '#AB47BC', emissiveIntensity: 0.45 }),
+      x,
+      clearance === 'jump' ? 1.05 : 2.35,
+      0
+    );
+  }
+
+  let barMesh: THREE.Mesh;
+  let beamMesh: THREE.Mesh | undefined;
+
+  if (clearance === 'jump') {
+    barMesh = addMesh(
+      group,
+      new THREE.BoxGeometry(8.2, 0.22, 0.28),
+      mat('#FF9800', { emissive: '#F57C00', emissiveIntensity: 0.25, roughness: 0.55 }),
+      0,
+      0.48,
+      0
+    );
+    for (let i = 0; i < 7; i++) {
+      addMesh(
+        barMesh,
+        new THREE.BoxGeometry(0.14, 0.24, 0.04),
+        mat(i % 2 === 0 ? '#FFEB3B' : '#212121', { emissive: i % 2 === 0 ? '#FFC107' : '#000', emissiveIntensity: i % 2 === 0 ? 0.3 : 0 }),
+        -3.2 + i * 1.05,
+        0,
+        0.16
+      );
+    }
+  } else {
+    barMesh = addMesh(
+      group,
+      new THREE.BoxGeometry(8.2, 0.18, 0.22),
+      mat('#7B1FA2', { emissive: '#AB47BC', emissiveIntensity: 0.2, roughness: 0.5 }),
+      0,
+      1.55,
+      0
+    );
+    beamMesh = addMesh(
+      group,
+      new THREE.BoxGeometry(7.8, 0.04, 0.12),
+      new THREE.MeshBasicMaterial({ color: '#EA80FC', transparent: true, opacity: 0.35 }),
+      0,
+      1.42,
+      0,
+      false
+    );
+    addMesh(group, new THREE.BoxGeometry(8.2, 0.06, 0.08), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.35 }), 0, 1.48, 0.12);
+  }
+
+  const label = makeTextSprite(
+    clearance === 'jump' ? '⬆ JUMP' : '⬇ SLIDE',
+    clearance === 'jump' ? '#FFE082' : '#E1BEE7',
+    clearance === 'jump' ? 'rgba(80,40,0,0.85)' : 'rgba(50,10,70,0.85)'
+  );
+  label.position.set(0, clearance === 'jump' ? 1.15 : 2.05, 0.5);
+  label.scale.set(2.8, 0.72, 1);
+  group.add(label);
+
+  scene.add(group);
+  return { kind: 'vault', mesh: group, z, clearance, resolved: false, barMesh, beamMesh, label };
+}
+
+export function animateVaultGate(v: VaultGateEntity, time: number): void {
+  if (v.resolved) {
+    v.mesh.visible = false;
+    return;
+  }
+  const pulse = 1 + Math.sin(time * 4) * 0.012;
+  v.barMesh.scale.y = pulse;
+  if (v.beamMesh) {
+    (v.beamMesh.material as THREE.MeshBasicMaterial).opacity = 0.22 + Math.sin(time * 5) * 0.1;
+  }
+  v.label.position.y = (v.clearance === 'jump' ? 1.15 : 2.05) + Math.sin(time * 3) * 0.04;
 }
 
 function makeSimpleGatePanel(x: number, safe: boolean) {
@@ -473,7 +574,7 @@ export function animateDropoff(d: DropoffEntity, time: number): void {
   d.rings.forEach((ring, i) => {
     ring.rotation.z = time * (i % 2 === 0 ? 1.2 : -0.9) + i;
     const matRing = ring.material as THREE.MeshBasicMaterial;
-    matRing.opacity = 0.28 + Math.sin(time * 3 + i) * 0.15;
+    matRing.opacity = 0.18 + Math.sin(time * 2.5 + i) * 0.08;
   });
 
   const beamMat = d.beam.material as THREE.MeshBasicMaterial;

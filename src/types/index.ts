@@ -19,24 +19,37 @@ export type ObstacleKind =
   | 'party-tent'
   | 'bin-alley'
   | 'hoa-gate'
+  | 'mailbox-row'
+  | 'lawn-sprinkler'
+  | 'package-spill'
   | 'news-stand'
   | 'food-cart'
   | 'alien-beacon'
   | 'fallen-sign'
   | 'checkpoint'
+  | 'traffic-barricade'
+  | 'burst-hydrant'
+  | 'bus-shelter'
   | 'cactus-wall'
   | 'mirage-rock'
   | 'rockslide'
   | 'sand-drift'
   | 'skull-rock'
+  | 'tumbleweed'
+  | 'bone-arch'
+  | 'sun-bleached-wreck'
   | 'fallen-log'
   | 'temple-rubble'
   | 'thorn-bramble'
   | 'flood-wreck'
-  | 'totem-gate';
+  | 'totem-gate'
+  | 'vine-snare'
+  | 'quicksand-pit'
+  | 'idol-shrine';
 
 export type SegmentType =
   | { kind: 'gate'; z: number; safe: 'left' | 'right' }
+  | { kind: 'vault'; z: number; clearance: 'jump' | 'slide' }
   | { kind: 'blocker'; z: number; blocker: BlockerKind; required?: number; label: string; packageCost?: number }
   | { kind: 'enemy'; z: number; enemy: EnemyType; count: number }
   | { kind: 'runner'; z: number; tier?: 'grunt' | 'raider' | 'stalker' }

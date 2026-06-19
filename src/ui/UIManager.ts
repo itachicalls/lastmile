@@ -11,7 +11,7 @@ import { menuBackdropHtml } from './menuBackdrop';
 import { mountCharacterPreview } from './CharacterPreview';
 import { IS_MOBILE } from '../game/platform';
 import { setGameActive } from '../game/viewport';
-import { hazardForLevel, hazardLabel } from '../data/hazards';
+import { hazardPoolLabels } from '../data/hazards';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -190,12 +190,12 @@ export class UIManager {
       <div class="screen briefing-screen screen-glass">
         <div class="briefing-badge">${district.name}</div>
         <h1>${lvl.name}</h1>
-        <div class="briefing-hazard">⚠ Level hazard: ${hazardLabel(hazardForLevel(levelId))}</div>
+        <div class="briefing-hazard">⚠ Hazards: ${hazardPoolLabels(levelId)}</div>
         <div class="briefing-box">${lvl.briefing}</div>
         <div class="controls-grid">
           <div class="control-item"><kbd>A</kbd><kbd>D</kbd> Steer lanes</div>
           <div class="control-item"><span class="tap-icon">👆</span> Click / tap = shoot (📧 mail · 📦 if stocked)</div>
-          <div class="control-item"><kbd>SPACE</kbd> Jump · Green/Red/Yellow aliens run at you</div>
+          <div class="control-item"><kbd>SPACE</kbd> Jump · <kbd>S</kbd> Slide · Green/Red/Yellow aliens run at you</div>
           <div class="control-item">Power-ups: Slow-Mo · Fast Shot · Shield</div>
           <div class="control-item">⚡ Ability · Convoy auto-fights aliens</div>
         </div>
@@ -341,7 +341,7 @@ export class UIManager {
         <div class="fork-hint hidden" id="fork-hint"></div>
         <div class="screen-blur hidden" id="screen-blur"></div>
 
-        <div class="tap-hint" id="tap-hint">Jump · Shoot · Swerve at forks!</div>
+        <div class="tap-hint" id="tap-hint">Jump · Slide · Shoot · Swerve at forks!</div>
 
         <div class="combat-banner hidden" id="combat-banner">
           <div class="combat-title" id="combat-title">⚠ INTERCEPT!</div>
@@ -355,28 +355,55 @@ export class UIManager {
 
         <div class="damage-flash hidden" id="damage-flash"></div>
 
-        <div class="hud-bottom">
-          <button class="action-btn jump-btn" id="jump-btn" title="Jump (SPACE)">
+        ${IS_MOBILE ? `<div class="hud-actions-left">
+          <button class="action-btn jump-btn" id="jump-btn" title="Jump">
             <span class="action-icon">⬆</span>
             <span>JUMP</span>
           </button>
+          <button class="action-btn slide-btn" id="slide-btn" title="Slide">
+            <span class="action-icon">⬇</span>
+            <span>SLIDE</span>
+          </button>
+        </div>` : ''}
+
+        <div class="hud-bottom ${IS_MOBILE ? 'hud-bottom-mobile' : ''}">
+          ${IS_MOBILE ? '' : `<button class="action-btn jump-btn" id="jump-btn" title="Jump (SPACE)">
+            <span class="action-icon">⬆</span>
+            <span>JUMP</span>
+          </button>
+          <button class="action-btn slide-btn" id="slide-btn" title="Slide (S)">
+            <span class="action-icon">⬇</span>
+            <span>SLIDE</span>
+          </button>`}
           <button class="action-btn shoot-btn" id="shoot-btn" title="Shoot (click)">
             <span class="action-icon" id="shoot-icon">📧</span>
             <span id="shoot-label">SHOOT</span>
             <div class="ability-cd hidden" id="shoot-cd"></div>
           </button>
-          <button class="action-btn special-btn" id="special-btn" title="Ground Quake (E) — 3 hits">
+          ${IS_MOBILE ? '' : `<button class="action-btn special-btn" id="special-btn" title="Ground Quake (E) — 3 hits">
             <div class="special-meter"><div class="special-fill" id="special-fill"></div></div>
             <span class="action-icon">💥</span>
             <span id="special-label">QUAKE</span>
             <span class="special-count hidden" id="special-shakes"></span>
-          </button>
-          ${this.save.get().equippedAbility ? `<button class="action-btn ability-btn" id="ability-btn" title="Shop ability (Q)">
+          </button>`}
+          ${!IS_MOBILE && this.save.get().equippedAbility ? `<button class="action-btn ability-btn" id="ability-btn" title="Shop ability (Q)">
             <span class="action-icon">⚡</span>
             <span id="ability-label">Ability</span>
             <div class="ability-cd hidden" id="ability-cd"></div>
           </button>` : ''}
         </div>
+
+        ${IS_MOBILE ? `<button class="action-btn special-btn hud-quake-btn" id="special-btn" title="Ground Quake">
+          <div class="special-meter"><div class="special-fill" id="special-fill"></div></div>
+          <span class="action-icon">💥</span>
+          <span id="special-label">QUAKE</span>
+          <span class="special-count hidden" id="special-shakes"></span>
+        </button>
+        ${this.save.get().equippedAbility ? `<button class="action-btn ability-btn hud-ability-float" id="ability-btn" title="Ability">
+          <span class="action-icon">⚡</span>
+          <span id="ability-label">Ability</span>
+          <div class="ability-cd hidden" id="ability-cd"></div>
+        </button>` : ''}` : ''}
       </div>
     `);
     this.root.appendChild(hud);
@@ -433,6 +460,12 @@ export class UIManager {
       e.preventDefault();
       e.stopPropagation();
       this.game?.jump();
+    });
+
+    document.getElementById('slide-btn')!.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.game?.slide();
     });
 
     document.getElementById('shoot-btn')!.addEventListener('pointerdown', (e) => {
@@ -508,13 +541,23 @@ export class UIManager {
     }
 
     const forkHint = document.getElementById('fork-hint');
-    if (forkHint && d.forkHint !== this.hudCache.forkHint) {
-      if (d.forkHint) {
-        forkHint.textContent = d.forkHint;
+    const hintText = d.vaultHint || d.forkHint;
+    if (forkHint && hintText !== (this.hudCache.vaultHint || this.hudCache.forkHint)) {
+      if (hintText) {
+        forkHint.textContent = hintText;
         forkHint.classList.remove('hidden');
+        forkHint.classList.toggle('vault-hint', !!d.vaultHint);
       } else {
         forkHint.classList.add('hidden');
+        forkHint.classList.remove('vault-hint');
       }
+    }
+
+    if (d.jumpReady !== this.hudCache.jumpReady) {
+      document.getElementById('jump-btn')?.classList.toggle('ready', d.jumpReady);
+    }
+    if (d.slideReady !== this.hudCache.slideReady) {
+      document.getElementById('slide-btn')?.classList.toggle('ready', d.slideReady);
     }
 
     if (d.shootReady !== this.hudCache.shootReady) {

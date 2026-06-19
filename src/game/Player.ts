@@ -16,7 +16,10 @@ export class Player {
   private jumpVel = 0;
   private jumpPower = 12;
   isJumping = false;
+  isSliding = false;
+  private slideTimer = 0;
   private readonly baseBodyY = 0.28;
+  private shadow: THREE.Mesh;
 
   private body: THREE.Group;
   private leftLeg: THREE.Group;
@@ -26,7 +29,6 @@ export class Player {
   private packageOrb: THREE.Group;
   private hoverboard: THREE.Group;
   private backpack: THREE.Group;
-  private trailMeshes: THREE.Mesh[] = [];
   readonly characterName: string;
 
   constructor(scene: THREE.Scene, character: CharacterDef) {
@@ -43,19 +45,16 @@ export class Player {
     this.hoverboard = built.hoverboard;
     this.backpack = built.backpack;
 
-    for (let i = 0; i < 3; i++) {
-      const t = addMesh(
-        this.mesh,
-        new THREE.PlaneGeometry(0.38, 0.07),
-        new THREE.MeshBasicMaterial({ color: '#00E5FF', transparent: true, opacity: 0.32 - i * 0.09 }),
-        0,
-        0.1,
-        -0.42 - i * 0.26,
-        false
-      );
-      t.rotation.x = -Math.PI / 2;
-      this.trailMeshes.push(t);
-    }
+    this.shadow = addMesh(
+      scene,
+      new THREE.CircleGeometry(0.42, 12),
+      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false }),
+      0,
+      0.03,
+      0,
+      false
+    );
+    this.shadow.rotation.x = -Math.PI / 2;
 
     scene.add(this.mesh);
   }
@@ -65,6 +64,14 @@ export class Player {
     this.x += (this.targetX - this.x) * Math.min(1, steerSpeed * dt);
     this.x = THREE.MathUtils.clamp(this.x, -roadHalfWidth, roadHalfWidth);
     this.targetX = THREE.MathUtils.clamp(this.targetX, -roadHalfWidth, roadHalfWidth);
+
+    if (this.slideTimer > 0) {
+      this.slideTimer -= dt;
+      if (this.slideTimer <= 0) {
+        this.slideTimer = 0;
+        this.isSliding = false;
+      }
+    }
 
     if (this.isJumping) {
       this.jumpVel -= 34 * dt;
@@ -77,31 +84,44 @@ export class Player {
     }
 
     this.mesh.position.set(this.x, this.jumpY, this.z);
+    this.shadow.position.set(this.x, 0.03, this.z);
+    const shadowScale = 1 - Math.min(0.45, this.jumpY * 0.12);
+    this.shadow.scale.set(shadowScale, shadowScale, 1);
+    (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.18 + shadowScale * 0.14;
 
-    if (moving) {
+    if (this.isSliding) {
+      this.body.position.y = 0.08;
+      this.body.rotation.x = 0.55;
+      this.leftLeg.rotation.x = 1.1;
+      this.rightLeg.rotation.x = 1.25;
+      this.leftArm.rotation.x = 0.35;
+      this.rightArm.rotation.x = 0.35;
+      this.hoverboard.rotation.x = 0.15;
+      this.hoverboard.position.y = 0.02;
+      this.backpack.rotation.x = 0.25;
+    } else if (moving) {
       this.runPhase += dt * 13;
       const swing = Math.sin(this.runPhase) * 0.48;
       this.leftLeg.rotation.x = swing;
       this.rightLeg.rotation.x = -swing;
       this.leftArm.rotation.x = -swing * 0.5;
       this.rightArm.rotation.x = swing * 0.5;
+      this.body.rotation.x = 0;
       this.body.position.y = this.baseBodyY + Math.abs(Math.sin(this.runPhase * 2)) * 0.045;
+      this.hoverboard.rotation.x = 0;
+      this.hoverboard.position.y = 0;
       if (this.isJumping) {
         this.leftLeg.rotation.x = -0.65;
         this.rightLeg.rotation.x = -0.35;
         this.body.position.y = this.baseBodyY + 0.15;
+        this.body.rotation.x = -0.08;
       }
       this.hoverboard.rotation.z = this.x * 0.032;
       this.backpack.rotation.x = Math.sin(this.runPhase) * 0.04;
       this.backpack.rotation.z = Math.sin(this.runPhase * 0.5) * 0.03;
-
-      this.trailMeshes.forEach((t, i) => {
-        t.visible = true;
-        t.position.z = -0.48 - i * 0.28;
-        (t.material as THREE.MeshBasicMaterial).opacity = 0.32 - i * 0.09 + Math.sin(this.runPhase * 3) * 0.04;
-      });
     } else {
-      this.trailMeshes.forEach((t) => (t.visible = false));
+      this.body.rotation.x = 0;
+      this.body.position.y = this.baseBodyY;
     }
 
     updateCarriedPackageOrb(this.packageOrb, Date.now() * 0.001);
@@ -123,9 +143,16 @@ export class Player {
   }
 
   jump(): boolean {
-    if (this.isJumping) return false;
+    if (this.isJumping || this.isSliding) return false;
     this.isJumping = true;
     this.jumpVel = this.jumpPower;
+    return true;
+  }
+
+  slide(): boolean {
+    if (this.isJumping || this.isSliding) return false;
+    this.isSliding = true;
+    this.slideTimer = 0.62;
     return true;
   }
 
@@ -141,7 +168,7 @@ export class Player {
     this.ghostMode = on;
     const opacity = on ? 0.22 : 1;
     this.mesh.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
+      if (c instanceof THREE.Mesh && c !== this.shadow) {
         const mats = Array.isArray(c.material) ? c.material : [c.material];
         for (const m of mats) {
           m.transparent = on || m.transparent;
@@ -175,6 +202,9 @@ export class Player {
 
   dispose(scene: THREE.Scene): void {
     scene.remove(this.mesh);
+    scene.remove(this.shadow);
     disposeObject3D(this.mesh);
+    this.shadow.geometry.dispose();
+    (this.shadow.material as THREE.Material).dispose();
   }
 }

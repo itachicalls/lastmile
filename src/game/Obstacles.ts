@@ -39,9 +39,9 @@ export function updateObstacles(obstacles: ObstacleEntity[], time: number, playe
       const blinkPhase = (c.userData.blinkPhase as number) ?? 0;
 
       if (c.userData.isGlow) {
-        c.rotation.z = time * 0.9 + o.x;
+        c.rotation.z = time * 0.3 + o.x;
         const m = c.material as THREE.MeshBasicMaterial;
-        if (m.opacity !== undefined) m.opacity = 0.28 + Math.sin(time * 4 + o.z) * 0.14;
+        if (m.opacity !== undefined) m.opacity = 0.1 + Math.sin(time * 2 + o.z) * 0.03;
       }
       if (c.userData.isBob) {
         c.position.y = (c.userData.baseY as number | undefined) ?? c.position.y;
@@ -50,7 +50,7 @@ export function updateObstacles(obstacles: ObstacleEntity[], time: number, playe
       }
       if (c.userData.isBlink) {
         const m = c.material as THREE.MeshStandardMaterial;
-        m.emissiveIntensity = 0.35 + Math.sin(time * 6 + blinkPhase) * 0.25;
+        m.emissiveIntensity = 0.22 + Math.sin(time * 4 + blinkPhase) * 0.12;
       }
       if (c.userData.isSpin) {
         c.rotation.y = time * 2 + phase;
