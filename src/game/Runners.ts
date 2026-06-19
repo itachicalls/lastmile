@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, disposeObject3D } from './ModelUtils';
-import { buildAlien, animateAlienRig } from './AlienModels';
+import { buildChibiSpecies, pickSpeciesForTier, animateAlienRig, type ChibiSpecies, type ChibiTier } from './AlienModels';
 import { IS_MOBILE, isNearZ } from './platform';
 
 export type RunnerTier = 'grunt' | 'raider' | 'stalker';
@@ -10,6 +10,7 @@ export type RunnerEntity = {
   x: number;
   z: number;
   tier: RunnerTier;
+  species: ChibiSpecies;
   hp: number;
   maxHp: number;
   speed: number;
@@ -20,7 +21,6 @@ export type RunnerEntity = {
 const TIER: Record<
   RunnerTier,
   {
-    alien: 'pickpocket' | 'rival' | 'boss';
     scale: number;
     emissive: string;
     speed: number;
@@ -28,17 +28,25 @@ const TIER: Record<
     label: string;
   }
 > = {
-  grunt: { alien: 'pickpocket', scale: 0.82, emissive: '#76FF03', speed: 10, hp: 1, label: 'Grunt' },
-  raider: { alien: 'rival', scale: 0.92, emissive: '#FFC107', speed: 14, hp: 2, label: 'Raider' },
-  stalker: { alien: 'boss', scale: 0.48, emissive: '#FF1744', speed: 19, hp: 3, label: 'Stalker' },
+  grunt: { scale: 0.82, emissive: '#76FF03', speed: 10, hp: 1, label: 'Grunt' },
+  raider: { scale: 0.92, emissive: '#FFC107', speed: 14, hp: 2, label: 'Raider' },
+  stalker: { scale: 1.05, emissive: '#FF1744', speed: 19, hp: 3, label: 'Stalker' },
+};
+
+const RUNNER_TIER: Record<RunnerTier, ChibiTier> = {
+  grunt: 'grunt',
+  raider: 'raider',
+  stalker: 'boss',
 };
 
 export function createRunner(scene: THREE.Scene, tier: RunnerTier, x: number, z: number): RunnerEntity {
   const t = TIER[tier];
+  const chibiTier = RUNNER_TIER[tier];
+  const species = pickSpeciesForTier(chibiTier);
   const group = new THREE.Group();
   group.position.set(x, 0, z);
 
-  const alien = buildAlien(t.alien, t.scale);
+  const alien = buildChibiSpecies(species, t.scale, chibiTier);
   alien.rotation.y = Math.PI;
   group.add(alien);
 
@@ -70,15 +78,9 @@ export function createRunner(scene: THREE.Scene, tier: RunnerTier, x: number, z:
   );
   shadow.rotation.x = -Math.PI / 2;
 
-  if (!IS_MOBILE) {
-    const glow = new THREE.PointLight(t.emissive, 0.45, 3.5);
-    glow.position.set(0, 1.2 * t.scale * 3, 0);
-    group.add(glow);
-  }
-
   scene.add(group);
 
-  return { mesh: group, x, z, tier, hp: t.hp, maxHp: t.hp, speed: t.speed, alive: true, aura };
+  return { mesh: group, x, z, tier, species, hp: t.hp, maxHp: t.hp, speed: t.speed, alive: true, aura };
 }
 
 export function updateRunners(

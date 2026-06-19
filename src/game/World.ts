@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { DistrictTheme } from '../types';
 import { addMesh, mat, disposeObject3D } from './ModelUtils';
 import { IS_MOBILE, WORLD_AHEAD, WORLD_BEHIND, SKY_RES, SKY_UPDATE_SEC, freezeStatic, lerpColor } from './platform';
+import { SkyEffects } from './SkyEffects';
+import { getBrickTexture, getSidingTexture, getRoofShingleTexture, getBarkTexture, getLeafTexture } from './WorldTextures';
 
 type AnimProp = {
   obj: THREE.Object3D;
@@ -29,6 +31,7 @@ export class World {
   private skyTick = 0;
   private playerZ = 0;
   private cullTimer = 0;
+  private skyEffects: SkyEffects | null = null;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -131,6 +134,10 @@ export class World {
 
     const rng = seededRandom(theme.id * 1337 + levelLength);
 
+    if (this.skyEffects) this.skyEffects.dispose();
+    this.skyEffects = new SkyEffects(this.scene);
+    this.skyEffects.build(levelLength, rng);
+
     // Clouds
     const cloudCount = IS_MOBILE ? 3 : 5;
     for (let i = 0; i < cloudCount; i++) {
@@ -145,19 +152,22 @@ export class World {
     // Buildings, props, alien crash sites
     const propStep = IS_MOBILE ? 22 : 18;
     const propJitter = IS_MOBILE ? 5 : 7;
+    const buildingSlots: { side: number; z: number }[] = [];
     for (let z = 0; z < levelLength + 50; z += propStep + Math.floor(rng() * propJitter)) {
       for (const side of [-1, 1]) {
         const roll = rng();
-        if (roll > (IS_MOBILE ? 0.22 : 0.14)) {
+        const placeBuilding = roll > (IS_MOBILE ? 0.22 : 0.14);
+        if (placeBuilding) {
           const building = this.makeBuilding(theme, rng, side);
-          building.position.set(side * (8 + rng() * 5), 0, z + rng() * 5);
+          const bz = z + rng() * 5;
+          building.position.set(side * (8 + rng() * 5), 0, bz);
           freezeStatic(building);
           this.scene.add(building);
           this.rootMeshes.push(building);
-        }
-        if (roll > 0.48 && theme.id <= 2 && !IS_MOBILE) {
+          buildingSlots.push({ side, z: bz });
+        } else if (theme.id <= 2 && rng() > 0.32) {
           const tree = this.makeTree(rng);
-          tree.position.set(side * (10 + rng() * 3), 0, z + rng() * 4);
+          tree.position.set(side * (13 + rng() * 3.5), 0, z + rng() * 4);
           freezeStatic(tree);
           this.scene.add(tree);
           this.rootMeshes.push(tree);
@@ -193,6 +203,22 @@ export class World {
       }
     }
 
+    // Extra tree belt — fills suburban gaps without overlapping houses
+    if (theme.id <= 2) {
+      const treeStep = IS_MOBILE ? 14 : 11;
+      for (let z = 24; z < levelLength + 40; z += treeStep + Math.floor(rng() * 5)) {
+        for (const side of [-1, 1]) {
+          const nearHouse = buildingSlots.some((b) => b.side === side && Math.abs(b.z - z) < 8);
+          if (nearHouse || rng() > 0.58) continue;
+          const tree = this.makeTree(rng);
+          tree.position.set(side * (12.5 + rng() * 4), 0, z + rng() * 3);
+          freezeStatic(tree);
+          this.scene.add(tree);
+          this.rootMeshes.push(tree);
+        }
+      }
+    }
+
     // Start / finish arches
     this.addMilestoneArch(8, '#66BB6A', 'START');
     this.addMilestoneArch(levelLength - 5, '#FFD54F', 'ZONE');
@@ -222,6 +248,30 @@ export class World {
     ctx.restore();
   }
 
+  private drawAurora(ctx: CanvasRenderingContext2D, w: number, h: number, alpha: number): void {
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    for (let band = 0; band < 3; band++) {
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 8) {
+        const y = h * (0.18 + band * 0.08) + Math.sin(x * 0.02 + band * 2) * 22 + Math.cos(x * 0.008) * 14;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h * 0.55);
+      ctx.lineTo(0, h * 0.55);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(0, 0, w, h * 0.5);
+      g.addColorStop(0, band === 0 ? 'rgba(0,230,118,0)' : band === 1 ? 'rgba(0,229,255,0)' : 'rgba(224,64,251,0)');
+      g.addColorStop(0.5, band === 0 ? 'rgba(0,230,118,0.35)' : band === 1 ? 'rgba(0,229,255,0.28)' : 'rgba(224,64,251,0.22)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   private paintSky(night: number, theme: DistrictTheme): void {
     if (!this.skyCanvas) return;
     const ctx = this.skyCanvas.getContext('2d')!;
@@ -240,12 +290,35 @@ export class World {
 
     const grad = ctx.createLinearGradient(0, 0, 0, h);
     grad.addColorStop(0, top);
-    grad.addColorStop(0.38, mid);
-    grad.addColorStop(0.68, horizon);
-    grad.addColorStop(0.88, glow);
+    grad.addColorStop(0.28, mid);
+    grad.addColorStop(0.55, horizon);
+    grad.addColorStop(0.78, glow);
     grad.addColorStop(1, lerpColor(theme.fog, '#0a0a12', night));
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
+
+    if (night > 0.15 && night < 0.75) {
+      const dusk = Math.sin(night * Math.PI) * 0.85;
+      const duskGrad = ctx.createLinearGradient(0, h * 0.45, 0, h);
+      duskGrad.addColorStop(0, 'rgba(255,120,60,0)');
+      duskGrad.addColorStop(0.45, `rgba(255,140,80,${0.35 * dusk})`);
+      duskGrad.addColorStop(0.75, `rgba(255,87,34,${0.25 * dusk})`);
+      duskGrad.addColorStop(1, 'rgba(80,20,60,0)');
+      ctx.fillStyle = duskGrad;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    if (night > 0.55) {
+      this.drawAurora(ctx, w, h, Math.min(1, (night - 0.55) * 1.8));
+      const milky = ctx.createLinearGradient(w * 0.2, 0, w * 0.8, h);
+      milky.addColorStop(0, 'rgba(255,255,255,0)');
+      milky.addColorStop(0.45, `rgba(200,210,255,${0.08 * night})`);
+      milky.addColorStop(0.55, `rgba(255,255,255,${0.12 * night})`);
+      milky.addColorStop(0.65, `rgba(200,210,255,${0.08 * night})`);
+      milky.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = milky;
+      ctx.fillRect(0, 0, w, h);
+    }
 
     if (night < 0.72) {
       const sunAlpha = Math.max(0, 1 - night * 1.35);
@@ -290,18 +363,30 @@ export class World {
 
     if (night > 0.2) {
       const starAlpha = Math.min(1, (night - 0.2) * 1.3);
-      const starCount = IS_MOBILE ? 40 : 60;
+      const starCount = IS_MOBILE ? 55 : 90;
       for (let i = 0; i < starCount; i++) {
         const sx = ((i * 97) % 1000) / 1000;
         const sy = ((i * 53) % 720) / 1000;
-        const twinkle = 0.55 + ((i * 17) % 10) / 20;
+        const twinkle = 0.45 + ((i * 17) % 10) / 18;
         ctx.fillStyle = `rgba(255,255,255,${starAlpha * twinkle})`;
-        const r = i % 4 === 0 ? 1.6 : 1.0;
+        const r = i % 7 === 0 ? 2.2 : i % 4 === 0 ? 1.5 : 0.9;
         ctx.beginPath();
         ctx.arc(sx * w, sy * h * 0.62, r, 0, Math.PI * 2);
         ctx.fill();
+        if (i % 11 === 0 && starAlpha > 0.5) {
+          ctx.strokeStyle = `rgba(180,220,255,${starAlpha * 0.35})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(sx * w - 4, sy * h * 0.62);
+          ctx.lineTo(sx * w + 4, sy * h * 0.62);
+          ctx.moveTo(sx * w, sy * h * 0.62 - 4);
+          ctx.lineTo(sx * w, sy * h * 0.62 + 4);
+          ctx.stroke();
+        }
       }
     }
+
+    this.skyEffects?.setNight(night);
 
     if (this.skyTexture) this.skyTexture.needsUpdate = true;
 
@@ -322,10 +407,11 @@ export class World {
 
   private updateSkyCycle(time: number, dt: number): void {
     this.skyTick += dt;
+    const night = (Math.sin(time * 0.035) + 1) / 2;
+    this.skyEffects?.setNight(night);
     if (this.skyTick < SKY_UPDATE_SEC) return;
     this.skyTick = 0;
-    const night = (Math.sin(time * 0.04) + 1) / 2;
-    const threshold = IS_MOBILE ? 0.04 : 0.025;
+    const threshold = IS_MOBILE ? 0.035 : 0.02;
     if (Math.abs(night - this.skyPhase) < threshold) return;
     this.skyPhase = night;
     this.paintSky(night, this.skyTheme);
@@ -379,22 +465,33 @@ export class World {
 
   private makeGrassTexture(theme: DistrictTheme): THREE.CanvasTexture {
     const c = document.createElement('canvas');
-    c.width = 128;
-    c.height = 128;
+    c.width = 256;
+    c.height = 256;
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = theme.ground;
-    ctx.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 120; i++) {
-      const x = (i * 37) % 128;
-      const y = (i * 53) % 128;
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
-      ctx.fillRect(x, y, 3, 3);
+    ctx.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 256; y += 2) {
+      for (let x = 0; x < 256; x += 2) {
+        const n = ((x * 13 + y * 7) % 100) / 100;
+        ctx.fillStyle = n > 0.5 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)';
+        ctx.fillRect(x, y, 2, 2);
+      }
     }
-    for (let i = 0; i < 24; i++) {
-      ctx.fillStyle = `rgba(0,0,0,${0.04 + (i % 3) * 0.02})`;
+    for (let i = 0; i < 48; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${0.03 + (i % 4) * 0.015})`;
       ctx.beginPath();
-      ctx.arc((i * 19) % 128, (i * 41) % 128, 4 + (i % 4), 0, Math.PI * 2);
+      ctx.ellipse((i * 19) % 256, (i * 41) % 256, 6 + (i % 5), 4 + (i % 3), i * 0.3, 0, Math.PI * 2);
       ctx.fill();
+    }
+    for (let i = 0; i < 200; i++) {
+      const x = (i * 37) % 256;
+      const y = (i * 53) % 256;
+      ctx.strokeStyle = i % 2 === 0 ? 'rgba(46,125,50,0.15)' : 'rgba(129,199,132,0.12)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + (i % 3) - 1, y - 3 - (i % 4));
+      ctx.stroke();
     }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -463,6 +560,7 @@ export class World {
     });
     addMesh(parent, new THREE.BoxGeometry(w + 0.08, h + 0.08, 0.05), frame, x, y, z);
     addMesh(parent, new THREE.BoxGeometry(w, h, 0.04), glass, x, y, z + 0.02);
+    addMesh(parent, new THREE.BoxGeometry(w + 0.14, 0.06, 0.08), mat('#455A64', { roughness: 0.8 }), x, y - h / 2 - 0.04, z + 0.03);
     if (lit && h > 0.35) {
       addMesh(parent, new THREE.BoxGeometry(0.03, h * 0.85, 0.02), frame, x, y, z + 0.04);
       addMesh(parent, new THREE.BoxGeometry(w * 0.85, 0.03, 0.02), frame, x, y, z + 0.04);
@@ -505,16 +603,23 @@ export class World {
     const wallHue = theme.buildingHue + rng() * 0.08;
     const wallColor = new THREE.Color().setHSL(wallHue, style === 'suburban' ? 0.42 : 0.32, style === 'neon' ? 0.22 : 0.38 + theme.id * 0.03);
     const trimColor = new THREE.Color().setHSL(wallHue, 0.25, style === 'suburban' ? 0.78 : 0.55);
-    const wallMat = mat(wallColor.getStyle(), { roughness: 0.82 });
+    const wallTex = style === 'suburban' ? getSidingTexture(wallHue) : getBrickTexture(wallHue);
+    wallTex.repeat.set(w / 2, h / 2);
+    const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, color: wallColor, roughness: 0.88 });
     const trimMat = mat(trimColor.getStyle(), { roughness: 0.75 });
-    const roofMat = mat(style === 'neon' ? '#311B92' : style === 'suburban' ? '#BF360C' : '#455A64', {
+    const roofTex = getRoofShingleTexture(style === 'suburban' ? '#BF360C' : '#455A64');
+    roofTex.repeat.set(w / 2, 1.5);
+    const roofMat = new THREE.MeshStandardMaterial({
+      map: roofTex,
+      color: style === 'neon' ? '#311B92' : style === 'suburban' ? '#BF360C' : '#455A64',
       roughness: 0.85,
       emissive: style === 'neon' ? '#7B1FA2' : '#000000',
       emissiveIntensity: style === 'neon' ? 0.25 : 0,
     });
 
     addMesh(g, new THREE.BoxGeometry(w, h, d), wallMat, 0, h / 2, 0);
-    addMesh(g, new THREE.BoxGeometry(w + 0.12, 0.22, d + 0.12), trimMat, 0, 0.11, 0);
+    addMesh(g, new THREE.BoxGeometry(w + 0.16, 0.28, d + 0.16), mat('#37474F', { roughness: 0.92 }), 0, 0.14, 0);
+    addMesh(g, new THREE.BoxGeometry(w + 0.2, 0.1, d + 0.2), trimMat, 0, 0.32, 0);
 
     if (style === 'suburban') {
       const roofL = addMesh(g, new THREE.BoxGeometry(w / 2 + 0.1, 0.18, d + 0.35), roofMat, -w / 4, h + 0.1, 0);
@@ -523,6 +628,16 @@ export class World {
       roofR.rotation.z = -0.42;
       addMesh(g, new THREE.BoxGeometry(0.45, 1.1, 0.45), mat('#78909C', { roughness: 0.8 }), w * 0.28, h + 0.85, d * 0.15);
       addMesh(g, new THREE.BoxGeometry(1.5, 0.1, 0.85), trimMat, roadSide > 0 ? -w / 2 - 0.55 : w / 2 + 0.55, 0.35, 0.2);
+      for (let step = 0; step < 3; step++) {
+        addMesh(
+          g,
+          new THREE.BoxGeometry(0.85, 0.12, 0.55),
+          mat('#78909C', { roughness: 0.85 }),
+          roadSide > 0 ? -w / 2 - 0.65 : w / 2 + 0.65,
+          0.06 + step * 0.12,
+          0.15 - step * 0.05
+        );
+      }
     } else if (style === 'downtown') {
       addMesh(g, new THREE.BoxGeometry(w + 0.2, 0.35, d + 0.2), mat('#37474F'), 0, h + 0.18, 0);
       addMesh(g, new THREE.BoxGeometry(1.2, 0.55, 1.0), mat('#546E7A', { metalness: 0.35 }), w * 0.25, h + 0.55, 0);
@@ -577,21 +692,45 @@ export class World {
   private makeTree(rng: () => number): THREE.Group {
     const g = new THREE.Group();
     const trunkH = 1.4 + rng() * 0.5;
-    addMesh(g, new THREE.CylinderGeometry(0.16, 0.24, trunkH, 8), mat('#5D4037', { roughness: 0.95 }), 0, trunkH / 2, 0);
-    addMesh(g, new THREE.SphereGeometry(0.14, 8, 8), mat('#4E342E'), 0, trunkH + 0.2, 0);
-    const greens = ['#43A047', '#66BB6A', '#2E7D32'];
-    for (let i = 0; i < 3; i++) {
+    const barkTex = getBarkTexture();
+    barkTex.repeat.set(1, trunkH / 2);
+    const barkMat = new THREE.MeshStandardMaterial({ map: barkTex, color: '#5D4037', roughness: 0.95 });
+    addMesh(g, new THREE.CylinderGeometry(0.16, 0.28, trunkH, 8), barkMat, 0, trunkH / 2, 0);
+    addMesh(g, new THREE.SphereGeometry(0.16, 8, 8), mat('#4E342E'), 0, trunkH + 0.15, 0);
+    for (let r = 0; r < 3; r++) {
+      const a = (r / 3) * Math.PI * 2;
+      addMesh(g, new THREE.BoxGeometry(0.12, 0.08, 0.35), mat('#4E342E'), Math.cos(a) * 0.2, 0.08, Math.sin(a) * 0.2);
+    }
+    const leafTex = getLeafTexture();
+    const greens = ['#43A047', '#66BB6A', '#2E7D32', '#81C784'];
+    for (let i = 0; i < 4; i++) {
       const layer = addMesh(
         g,
-        new THREE.ConeGeometry(1.35 - i * 0.22, 2.1 - i * 0.25, 8),
-        mat(greens[i % greens.length], { emissive: '#1B5E20', emissiveIntensity: 0.06 }),
-        0,
-        trunkH + 0.9 + i * 1.15,
-        0
+        new THREE.ConeGeometry(1.4 - i * 0.2, 2.0 - i * 0.22, 8),
+        new THREE.MeshStandardMaterial({
+          map: leafTex,
+          color: greens[i % greens.length],
+          emissive: '#1B5E20',
+          emissiveIntensity: 0.08,
+          roughness: 0.95,
+        }),
+        (rng() - 0.5) * 0.15,
+        trunkH + 0.85 + i * 1.1,
+        (rng() - 0.5) * 0.15
       );
-      layer.scale.set(1.05 - i * 0.08, 1, 1.05 - i * 0.08);
+      layer.scale.set(1.08 - i * 0.07, 1, 1.08 - i * 0.07);
     }
     if (!IS_MOBILE) {
+      for (let b = 0; b < 2; b++) {
+        addMesh(
+          g,
+          new THREE.SphereGeometry(0.55 + b * 0.15, 8, 8),
+          new THREE.MeshStandardMaterial({ map: leafTex, color: '#388E3C', transparent: true, opacity: 0.35, roughness: 1 }),
+          (b - 0.5) * 0.4,
+          0.35,
+          (rng() - 0.5) * 0.5
+        );
+      }
       addMesh(g, new THREE.SphereGeometry(0.07, 6, 6), mat('#FF5252', { emissive: '#D50000', emissiveIntensity: 0.3 }), 0.35, trunkH + 1.1, 0.25);
     }
     return g;
@@ -709,6 +848,7 @@ export class World {
 
   update(time: number, playerZ = this.playerZ, dt = 0.016): void {
     this.updateSkyCycle(time, dt);
+    this.skyEffects?.update(time, dt, playerZ);
     if (this.roadTexture && !IS_MOBILE) {
       this.roadTexture.offset.y = -time * 0.15;
     }
@@ -746,6 +886,8 @@ export class World {
   }
 
   private clear(): void {
+    this.skyEffects?.dispose();
+    this.skyEffects = null;
     for (const m of this.rootMeshes) {
       this.scene.remove(m);
       disposeObject3D(m);

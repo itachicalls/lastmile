@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { addMesh, disposeObject3D } from './ModelUtils';
 import { createMailmanMesh } from './MailmanModel';
+import { setPackageOrbTheme, updateCarriedPackageOrb } from './PackageVisual';
 import type { CharacterDef } from '../data/characters';
 
 export class Player {
@@ -22,8 +23,7 @@ export class Player {
   private rightLeg: THREE.Group;
   private leftArm: THREE.Group;
   private rightArm: THREE.Group;
-  private packageMesh: THREE.Mesh;
-  private packageGlow: THREE.Mesh;
+  private packageOrb: THREE.Group;
   private hoverboard: THREE.Group;
   private backpack: THREE.Group;
   private trailMeshes: THREE.Mesh[] = [];
@@ -39,8 +39,7 @@ export class Player {
     this.rightLeg = built.rightLeg;
     this.leftArm = built.leftArm;
     this.rightArm = built.rightArm;
-    this.packageMesh = built.packageMesh;
-    this.packageGlow = built.packageGlow;
+    this.packageOrb = built.packageOrb;
     this.hoverboard = built.hoverboard;
     this.backpack = built.backpack;
 
@@ -105,9 +104,7 @@ export class Player {
       this.trailMeshes.forEach((t) => (t.visible = false));
     }
 
-    this.packageGlow.scale.setScalar(1 + Math.sin(Date.now() * 0.004) * 0.04);
-    (this.packageGlow.material as THREE.MeshStandardMaterial).opacity =
-      0.45 + Math.sin(Date.now() * 0.005) * 0.15;
+    updateCarriedPackageOrb(this.packageOrb, Date.now() * 0.001);
 
     if (this.hurtFlash > 0) {
       this.hurtFlash -= dt;
@@ -169,20 +166,7 @@ export class Player {
   }
 
   setPackageGlow(intensity: number, district: number): void {
-    const matP = this.packageMesh.material as THREE.MeshStandardMaterial;
-    const matG = this.packageGlow.material as THREE.MeshStandardMaterial;
-    if (district >= 5) {
-      matP.emissive.set('#FF0000');
-      matG.emissive.set('#FF1744');
-    } else if (district >= 3) {
-      matP.emissive.set('#448AFF');
-      matG.emissive.set('#2979FF');
-    } else {
-      matP.emissive.set('#FF6F00');
-      matG.emissive.set('#FFAB00');
-    }
-    matP.emissiveIntensity = 0.55 + intensity * 0.4;
-    matG.emissiveIntensity = 0.7 + intensity * 0.4;
+    setPackageOrbTheme(this.packageOrb, district, intensity);
   }
 
   dashOffset(): void {

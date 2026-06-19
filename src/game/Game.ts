@@ -295,7 +295,7 @@ export class Game {
 
     this.applyUpgrades();
     const diff = level.difficulty;
-    const speed = 18 + diff * 0.4;
+    const speed = (IS_MOBILE ? 18 : 16.4) + diff * (IS_MOBILE ? 0.4 : 0.32);
 
     this.run = {
       ...INITIAL_RUN,
@@ -584,7 +584,7 @@ export class Game {
     updatePackagePickups(this.packagePickups, this.gameTime, pz);
     updatePowerUps(this.powerUps, this.gameTime, pz);
     updateRunners(this.runners, scaledDt, this.gameTime, 1, pz);
-    this.throws = updateThrows(this.throws, dt, this.scene);
+    this.throws = updateThrows(this.throws, dt, this.scene, this.gameTime);
     this.particles.update(dt);
     this.world.update(this.gameTime, pz, dt);
 

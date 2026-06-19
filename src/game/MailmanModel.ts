@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { addMesh, mat } from './ModelUtils';
+import { buildPackageOrb } from './PackageVisual';
 import type { CharacterDef } from '../data/characters';
 
 export type MailmanMesh = {
@@ -11,6 +12,7 @@ export type MailmanMesh = {
   rightArm: THREE.Group;
   packageMesh: THREE.Mesh;
   packageGlow: THREE.Mesh;
+  packageOrb: THREE.Group;
   hoverboard: THREE.Group;
   backpack: THREE.Group;
 };
@@ -37,7 +39,7 @@ function buildArm(side: number, jacket: THREE.Material, accent: THREE.Material, 
   return arm;
 }
 
-function buildBackpack(body: THREE.Group, character: CharacterDef): { pack: THREE.Group; vipPouch: THREE.Mesh; vipGlow: THREE.Mesh } {
+function buildBackpack(body: THREE.Group, character: CharacterDef): { pack: THREE.Group; vipPouch: THREE.Mesh; vipGlow: THREE.Mesh; packageOrb: THREE.Group } {
   const pack = new THREE.Group();
   pack.position.set(0, 1.0, -0.1);
 
@@ -67,33 +69,16 @@ function buildBackpack(body: THREE.Group, character: CharacterDef): { pack: THRE
 
   addMesh(pack, new THREE.BoxGeometry(0.41, 0.035, 0.01), trim, 0, 0.14, 0.07);
 
-  const vipPouch = addMesh(
-    pack,
-    new THREE.BoxGeometry(0.26, 0.2, 0.11),
-    mat('#FF8F00', { emissive: '#FF6F00', emissiveIntensity: 0.75, roughness: 0.45, metalness: 0.08 }),
-    0,
-    0.44,
-    0.0
-  );
-  addMesh(vipPouch, new THREE.BoxGeometry(0.28, 0.04, 0.02), mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.45 }), 0, 0.11, 0.06);
-  addMesh(vipPouch, new THREE.BoxGeometry(0.09, 0.07, 0.01), mat('#FFF'), 0, 0.02, 0.06);
-  addMesh(vipPouch, new THREE.BoxGeometry(0.02, 0.1, 0.01), mat('#FFF'), 0, 0, 0.06);
-
-  const vipGlow = addMesh(
-    pack,
-    new THREE.BoxGeometry(0.3, 0.025, 0.12),
-    mat('#FFD54F', { emissive: '#FFAB00', emissiveIntensity: 0.9, transparent: true, opacity: 0.55 }),
-    0,
-    0.56,
-    0.0,
-    false
-  );
+  const carried = buildPackageOrb('carried');
+  carried.group.position.set(0, 0.46, 0.04);
+  carried.group.rotation.y = 0.35;
+  pack.add(carried.group);
 
   addMesh(pack, new THREE.CylinderGeometry(0.01, 0.01, 0.12, 6), mat('#455A64', { metalness: 0.65 }), 0.15, 0.42, 0.03);
   addMesh(pack, new THREE.SphereGeometry(0.022, 8, 8), mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.75 }), 0.15, 0.49, 0.03);
 
   body.add(pack);
-  return { pack, vipPouch, vipGlow };
+  return { pack, vipPouch: carried.core, vipGlow: carried.outerGlow, packageOrb: carried.group };
 }
 
 export function createMailmanMesh(character: CharacterDef): MailmanMesh {
@@ -142,7 +127,7 @@ export function createMailmanMesh(character: CharacterDef): MailmanMesh {
   const rightArm = buildArm(1, jacket, jacketLight, skin);
   body.add(leftArm, rightArm);
 
-  const { pack, vipPouch, vipGlow } = buildBackpack(body, character);
+  const { pack, vipPouch, vipGlow, packageOrb } = buildBackpack(body, character);
 
   const scanGun = new THREE.Group();
   scanGun.position.set(0.42, 0.94, 0.16);
@@ -163,6 +148,7 @@ export function createMailmanMesh(character: CharacterDef): MailmanMesh {
     rightArm,
     packageMesh: vipPouch,
     packageGlow: vipGlow,
+    packageOrb,
     hoverboard,
     backpack: pack,
   };

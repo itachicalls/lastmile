@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { BlockerKind, GateOption } from '../types';
 import { addMesh, mat } from './ModelUtils';
+import { getHexPadTexture } from './WorldTextures';
 import { IS_MOBILE } from './platform';
 
 const GATE_PASS = '#43A047';
@@ -44,6 +45,9 @@ export type DropoffEntity = {
   z: number;
   reached: boolean;
   platform: THREE.Mesh;
+  rings: THREE.Mesh[];
+  beam: THREE.Mesh;
+  holoSign: THREE.Sprite;
 };
 
 const BLOCKER_THEME: Record<BlockerKind, { accent: string; light: string; door: string; labelBg: string }> = {
@@ -215,50 +219,137 @@ export function createBlocker(
 export function createDropoff(scene: THREE.Scene, z: number): DropoffEntity {
   const group = new THREE.Group();
   group.position.set(0, 0, z);
+  const seg = IS_MOBILE ? 16 : 24;
 
+  const padTex = getHexPadTexture();
+  padTex.repeat.set(2, 2);
   const platform = addMesh(
     group,
-    new THREE.CylinderGeometry(3.5, 3.8, 0.35, 32),
-    mat('#FFD54F', { emissive: '#FF8F00', emissiveIntensity: 0.5, metalness: 0.3 }),
+    new THREE.CylinderGeometry(3.6, 3.9, 0.28, seg),
+    new THREE.MeshStandardMaterial({
+      map: padTex,
+      color: '#FFD54F',
+      emissive: '#FF8F00',
+      emissiveIntensity: 0.45,
+      metalness: 0.35,
+      roughness: 0.45,
+    }),
     0,
-    0.18,
+    0.16,
     0
   );
 
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    addMesh(group, new THREE.CylinderGeometry(0.08, 0.08, 2), mat('#ECEFF1'), Math.cos(a) * 3.2, 1, Math.sin(a) * 3.2);
-    addMesh(
-      group,
-      new THREE.SphereGeometry(0.1, 8, 8),
-      mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.8 }),
-      Math.cos(a) * 3.2,
-      2.05,
-      Math.sin(a) * 3.2
-    );
-  }
-
   addMesh(
     group,
-    new THREE.CylinderGeometry(3.2, 3.2, 0.04, 32),
-    mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.3, transparent: true, opacity: 0.4 }),
+    new THREE.CylinderGeometry(3.15, 3.15, 0.04, seg),
+    mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.55, transparent: true, opacity: 0.55 }),
     0,
-    0.36,
+    0.32,
     0,
     false
   );
 
-  const sign = makeTextSprite('DROP-OFF ZONE', '#FFD54F', 'rgba(0,80,0,0.88)');
-  sign.position.set(0, 3.5, 0);
-  sign.scale.set(5, 1.2, 1);
-  group.add(sign);
+  const rings: THREE.Mesh[] = [];
+  for (const [r0, r1, y, op] of [
+    [3.0, 3.25, 0.08, 0.45],
+    [2.4, 2.58, 0.12, 0.35],
+    [1.75, 1.92, 0.16, 0.5],
+  ] as const) {
+    const ring = addMesh(
+      group,
+      new THREE.RingGeometry(r0, r1, seg),
+      new THREE.MeshBasicMaterial({ color: '#00E5FF', transparent: true, opacity: op, side: THREE.DoubleSide }),
+      0,
+      y,
+      0,
+      false
+    );
+    ring.rotation.x = -Math.PI / 2;
+    rings.push(ring);
+  }
 
-  const glow = new THREE.PointLight(0xffd54f, 2, 20);
-  glow.position.set(0, 4, 0);
-  group.add(glow);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const px = Math.cos(a) * 3.35;
+    const pz = Math.sin(a) * 3.35;
+    addMesh(group, new THREE.BoxGeometry(0.12, 2.8, 0.12), mat('#37474F', { metalness: 0.5, roughness: 0.4 }), px, 1.4, pz);
+    addMesh(
+      group,
+      new THREE.BoxGeometry(0.08, 2.4, 0.04),
+      mat('#00E676', { emissive: '#00E676', emissiveIntensity: 0.85 }),
+      px + Math.cos(a) * 0.08,
+      1.4,
+      pz + Math.sin(a) * 0.08
+    );
+    addMesh(
+      group,
+      new THREE.SphereGeometry(0.14, 8, 8),
+      mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 1.0 }),
+      px,
+      2.85,
+      pz
+    );
+  }
+
+  const beam = addMesh(
+    group,
+    new THREE.CylinderGeometry(0.15, 1.8, 5.5, seg, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: '#69F0AE',
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }),
+    0,
+    2.75,
+    0,
+    false
+  );
+
+  for (const sx of [-1, 1]) {
+    const arrow = addMesh(
+      group,
+      new THREE.ConeGeometry(0.35, 0.7, 4),
+      mat('#FFD54F', { emissive: '#FFAB00', emissiveIntensity: 0.65, transparent: true, opacity: 0.75 }),
+      sx * 2.2,
+      3.8,
+      0,
+      false
+    );
+    arrow.rotation.z = sx * Math.PI;
+  }
+
+  addMesh(
+    group,
+    new THREE.BoxGeometry(0.55, 0.45, 0.35),
+    mat('#FF9800', { emissive: '#FF6F00', emissiveIntensity: 0.6 }),
+    0,
+    4.2,
+    0
+  );
+  addMesh(
+    group,
+    new THREE.BoxGeometry(0.6, 0.08, 0.08),
+    mat('#FFD54F', { emissive: '#FFC107', emissiveIntensity: 0.8 }),
+    0,
+    4.48,
+    0
+  );
+
+  const holoSign = makeTextSprite('◆ DROP-OFF ZONE ◆', '#00E676', 'rgba(0,20,40,0.82)');
+  holoSign.position.set(0, 5.2, 0);
+  holoSign.scale.set(6, 1.4, 1);
+  group.add(holoSign);
+
+  const subSign = makeTextSprite('DELIVER PACKAGE TO WIN', '#FFD54F', 'rgba(0,0,0,0.65)');
+  subSign.position.set(0, 4.35, 0);
+  subSign.scale.set(4.5, 0.75, 1);
+  group.add(subSign);
 
   scene.add(group);
-  return { kind: 'dropoff', mesh: group, z, reached: false, platform };
+  return { kind: 'dropoff', mesh: group, z, reached: false, platform, rings, beam, holoSign };
 }
 
 function makeSimpleGatePanel(x: number, safe: boolean) {
@@ -376,8 +467,21 @@ export function animateBlocker(b: BlockerEntity, time: number): void {
 }
 
 export function animateDropoff(d: DropoffEntity, time: number): void {
-  d.platform.rotation.y = time * 0.5;
-  d.platform.position.y = 0.18 + Math.sin(time * 2) * 0.06;
+  d.platform.rotation.y = time * 0.65;
+  d.platform.position.y = 0.16 + Math.sin(time * 2.2) * 0.05;
+
+  d.rings.forEach((ring, i) => {
+    ring.rotation.z = time * (i % 2 === 0 ? 1.2 : -0.9) + i;
+    const matRing = ring.material as THREE.MeshBasicMaterial;
+    matRing.opacity = 0.28 + Math.sin(time * 3 + i) * 0.15;
+  });
+
+  const beamMat = d.beam.material as THREE.MeshBasicMaterial;
+  beamMat.opacity = 0.14 + Math.sin(time * 4) * 0.1;
+  d.beam.scale.set(1 + Math.sin(time * 5) * 0.06, 1, 1 + Math.sin(time * 5) * 0.06);
+
+  d.holoSign.position.y = 5.2 + Math.sin(time * 2.5) * 0.12;
+  d.holoSign.material.opacity = 0.88 + Math.sin(time * 6) * 0.1;
 }
 
 export function applyGateEffect(
