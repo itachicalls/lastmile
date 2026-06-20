@@ -151,15 +151,17 @@ export class UIManager {
               </div>
               <code class="wallet-gate-mint" title="${GAME_TOKEN_MINT}">${shortMint()}</code>
             </div>
-            <p class="wallet-gate-desc">Hold <strong>$${MIN_HOLDING_USD}+</strong> of the game token to unlock runs.</p>
+            <p class="wallet-gate-desc">Connect <strong>Phantom</strong>, sign, and hold <strong>$${MIN_HOLDING_USD}+</strong> of the token.</p>
             <div class="wallet-gate-body">
               <div class="wallet-status-chip" id="wallet-status-chip">
                 <span class="wallet-status-dot" id="wallet-status-dot" aria-hidden="true"></span>
-                <span id="wallet-status-label">Checking access…</span>
+                <span id="wallet-status-label">Ready to connect</span>
               </div>
-              <div class="wallet-gate-status" id="wallet-gate-status"></div>
+              <div class="wallet-gate-status" id="wallet-gate-status">
+                <div class="wallet-message">Tap Connect Phantom — approve connection, then approve the signature.</div>
+              </div>
               <div class="wallet-gate-actions">
-                <button type="button" class="wallet-btn wallet-btn-connect" id="btn-wallet-connect">Connect Wallet</button>
+                <button type="button" class="wallet-btn wallet-btn-connect" id="btn-wallet-connect">Connect Phantom</button>
                 <div class="wallet-connected-pill hidden" id="wallet-connected-pill" aria-live="polite">
                   <span class="wallet-connected-check" aria-hidden="true">✓</span>
                   Wallet Connected
@@ -225,7 +227,6 @@ export class UIManager {
       void this.tokenGate.disconnect();
     });
     this.syncWalletGateUI(screen);
-    void this.tokenGate.verify();
   }
 
   private syncWalletGateUI(screen: HTMLElement): void {
@@ -256,8 +257,8 @@ export class UIManager {
       return;
     }
 
-    gateEl.classList.remove('granted', 'denied', 'checking', 'error', 'connected');
-    statusChip.classList.remove('granted', 'denied', 'checking', 'error', 'disconnected');
+    gateEl.classList.remove('granted', 'denied', 'checking', 'signing', 'error', 'connected');
+    statusChip.classList.remove('granted', 'denied', 'checking', 'signing', 'error', 'disconnected');
 
     if (snap.status === 'granted') {
       gateEl.classList.add('granted');
@@ -267,23 +268,31 @@ export class UIManager {
       gateEl.classList.add('denied');
       statusChip.classList.add('denied');
       statusLabel.textContent = 'Insufficient balance';
-    } else if (snap.status === 'checking' || snap.status === 'connecting') {
+    } else if (snap.status === 'connecting') {
       gateEl.classList.add('checking');
       statusChip.classList.add('checking');
-      statusLabel.textContent = snap.status === 'connecting' ? 'Connecting wallet…' : 'Verifying holdings…';
+      statusLabel.textContent = 'Connect in Phantom';
+    } else if (snap.status === 'signing') {
+      gateEl.classList.add('signing');
+      statusChip.classList.add('signing');
+      statusLabel.textContent = 'Sign in Phantom';
+    } else if (snap.status === 'checking') {
+      gateEl.classList.add('checking');
+      statusChip.classList.add('checking');
+      statusLabel.textContent = 'Checking balance';
     } else if (snap.status === 'error') {
       gateEl.classList.add('error');
       statusChip.classList.add('error');
-      statusLabel.textContent = 'Verification error';
+      statusLabel.textContent = 'Something went wrong';
     } else {
       statusChip.classList.add('disconnected');
-      statusLabel.textContent = 'Wallet not connected';
+      statusLabel.textContent = 'Not verified yet';
     }
 
-    const connected = snap.walletAddress != null;
-    if (connected) gateEl.classList.add('connected');
+    const linked = ['checking', 'granted', 'denied', 'error'].includes(snap.status) && snap.walletAddress != null;
+    if (linked) gateEl.classList.add('connected');
 
-    if (connected && snap.walletAddress) {
+    if (snap.walletAddress && linked) {
       const holding =
         snap.holdingUsd != null && snap.tokenSymbol
           ? `<div class="wallet-holding-value">~$${snap.holdingUsd.toFixed(2)} <span>of $${snap.tokenSymbol}</span></div>`
@@ -295,6 +304,11 @@ export class UIManager {
         </div>
         ${holding}
         <div class="wallet-message">${typeof snap.message === 'string' ? snap.message : 'Verification failed. Tap Recheck.'}</div>`;
+    } else if (
+      snap.walletAddress &&
+      (snap.status === 'connecting' || snap.status === 'signing' || snap.status === 'checking')
+    ) {
+      statusEl.innerHTML = `<div class="wallet-message">${snap.message}</div>`;
     } else {
       statusEl.innerHTML = `<div class="wallet-message">${typeof snap.message === 'string' ? snap.message : 'Connect your wallet to verify holdings.'}</div>`;
     }
@@ -303,14 +317,16 @@ export class UIManager {
     playBtn.disabled = !granted;
     playBtn.title = granted ? '' : `Hold at least $${MIN_HOLDING_USD} of the game token to play`;
 
-    const busy = snap.status === 'connecting' || snap.status === 'checking';
-    connectBtn.classList.toggle('hidden', connected);
-    connectedPill.classList.toggle('hidden', !connected);
-    actionRow.classList.toggle('hidden', !connected);
+    const busy = snap.status === 'connecting' || snap.status === 'signing' || snap.status === 'checking';
+    connectBtn.classList.toggle('hidden', linked);
+    connectedPill.classList.toggle('hidden', !linked);
+    actionRow.classList.toggle('hidden', !linked);
 
-    if (!connected) {
+    if (!linked) {
       connectBtn.textContent =
-        snap.status === 'connecting' ? 'Connecting…' : busy ? 'Please wait…' : 'Connect Wallet';
+        snap.status === 'connecting' || snap.status === 'signing'
+          ? 'Approve in Phantom…'
+          : 'Connect Phantom';
     }
 
     connectBtn.disabled = busy;
@@ -324,8 +340,12 @@ export class UIManager {
       return;
     }
     const ok = await this.tokenGate.verify();
-    if (ok) onGranted();
-    else this.toast(this.tokenGate.getSnapshot().message);
+    if (ok) {
+      onGranted();
+      return;
+    }
+    const msg = this.tokenGate.getSnapshot().message;
+    this.toast(msg.includes('Phantom') ? msg : `Connect Phantom first. ${msg}`);
   }
 
   showLevels(): void {

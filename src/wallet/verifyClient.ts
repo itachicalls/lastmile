@@ -1,7 +1,10 @@
 import { GAME_TOKEN_MINT, MIN_HOLDING_USD } from './config';
 import type { VerifyHoldingResult } from './gateTypes';
 
-const RPC_URLS = ['https://solana-rpc.publicnode.com', 'https://rpc.ankr.com/solana'];
+const RPC_URLS = [
+  'https://solana-rpc.publicnode.com',
+  'https://api.mainnet-beta.solana.com',
+];
 
 function rpcErrorMessage(error: unknown): string {
   if (typeof error === 'string') return error;
@@ -44,7 +47,7 @@ async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
     }
   }
 
-  throw lastError ?? new Error('All Solana RPC endpoints failed');
+  throw lastError ?? new Error('Could not reach Solana network. Try again.');
 }
 
 interface ParsedTokenAccount {

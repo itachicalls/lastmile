@@ -2,7 +2,9 @@ import { TOKEN_GATE_ENABLED } from './config';
 import { verifyHoldingApi } from './verifyApi';
 import {
   getWalletProvider,
+  signAccessMessage,
   walletAddress,
+  walletErrorMessage,
   type SolanaWalletProvider,
 } from './walletProvider';
 
@@ -11,18 +13,11 @@ function gateMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
-function gateErrorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    const msg = err.message?.trim();
-    if (msg && msg !== '[object Object]') return msg;
-  }
-  return 'Could not verify wallet. Tap Recheck.';
-}
-
 export type GateStatus =
   | 'bypassed'
   | 'disconnected'
   | 'connecting'
+  | 'signing'
   | 'checking'
   | 'granted'
   | 'denied'
@@ -48,7 +43,7 @@ const INITIAL_SNAPSHOT: GateSnapshot = {
   tokenPriceUsd: null,
   holdingUsd: null,
   message: TOKEN_GATE_ENABLED
-    ? 'Connect a Solana wallet holding at least $3 of the game token to play.'
+    ? 'Connect Phantom and sign to verify your token holdings.'
     : 'Token gate bypassed for local development.',
 };
 
@@ -56,7 +51,9 @@ export class TokenGate {
   private snapshot: GateSnapshot = { ...INITIAL_SNAPSHOT };
   private listeners = new Set<GateListener>();
   private provider: SolanaWalletProvider | null = null;
+  private signedWallet: string | null = null;
   private boundOnWalletChange = () => {
+    this.signedWallet = null;
     void this.verify();
   };
 
@@ -64,7 +61,6 @@ export class TokenGate {
     if (!TOKEN_GATE_ENABLED) return;
     this.provider = getWalletProvider();
     this.attachWalletListeners();
-    void this.tryRestoreSession();
   }
 
   subscribe(listener: GateListener): () => void {
@@ -88,25 +84,46 @@ export class TokenGate {
     if (!provider) {
       this.setSnapshot({
         status: 'error',
-        message: 'No Solana wallet found. Install Phantom or Solflare, then refresh.',
+        walletAddress: null,
+        message: 'Phantom not detected. Install Phantom, open this site in its browser, then refresh.',
       });
       window.open('https://phantom.app/', '_blank', 'noopener,noreferrer');
       return;
     }
 
     this.provider = provider;
+    this.signedWallet = null;
     this.attachWalletListeners();
-    this.setSnapshot({ status: 'connecting', message: 'Connecting wallet…' });
 
     try {
-      await provider.connect();
+      this.setSnapshot({
+        status: 'connecting',
+        walletAddress: null,
+        message: 'Approve the connection in Phantom…',
+      });
+
+      await provider.connect({ onlyIfTrusted: false });
+      const address = walletAddress(provider);
+      if (!address) {
+        throw new Error('Wallet connected but no address was returned.');
+      }
+
+      this.setSnapshot({
+        status: 'signing',
+        walletAddress: address,
+        message: 'Approve the signature in Phantom…',
+      });
+
+      await signAccessMessage(provider, address);
+      this.signedWallet = address;
+
       await this.verify();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Wallet connection failed';
+      this.signedWallet = null;
       this.setSnapshot({
         status: 'error',
         walletAddress: walletAddress(provider),
-        message: msg,
+        message: walletErrorMessage(err),
       });
     }
   }
@@ -122,7 +139,7 @@ export class TokenGate {
         tokenBalance: null,
         tokenPriceUsd: null,
         holdingUsd: null,
-        message: 'Connect a Solana wallet holding at least $3 of the game token to play.',
+        message: 'Connect Phantom and sign to verify your token holdings.',
       });
       return false;
     }
@@ -135,7 +152,16 @@ export class TokenGate {
         tokenBalance: null,
         tokenPriceUsd: null,
         holdingUsd: null,
-        message: 'Connect a Solana wallet holding at least $3 of the game token to play.',
+        message: 'Connect Phantom and sign to verify your token holdings.',
+      });
+      return false;
+    }
+
+    if (this.signedWallet !== address) {
+      this.setSnapshot({
+        status: 'disconnected',
+        walletAddress: address,
+        message: 'Tap Connect Wallet and approve both prompts in Phantom.',
       });
       return false;
     }
@@ -185,11 +211,10 @@ export class TokenGate {
       });
       return false;
     } catch (err) {
-      const msg = gateErrorMessage(err);
       this.setSnapshot({
         status: 'error',
         walletAddress: address,
-        message: msg,
+        message: walletErrorMessage(err),
       });
       return false;
     }
@@ -198,6 +223,7 @@ export class TokenGate {
   async disconnect(): Promise<void> {
     if (!TOKEN_GATE_ENABLED) return;
     const provider = this.provider ?? getWalletProvider();
+    this.signedWallet = null;
     try {
       await provider?.disconnect();
     } catch {
@@ -209,15 +235,8 @@ export class TokenGate {
       tokenBalance: null,
       tokenPriceUsd: null,
       holdingUsd: null,
-      message: 'Connect a Solana wallet holding at least $3 of the game token to play.',
+      message: 'Connect Phantom and sign to verify your token holdings.',
     });
-  }
-
-  private async tryRestoreSession(): Promise<void> {
-    const provider = this.provider ?? getWalletProvider();
-    if (!provider?.publicKey) return;
-    this.provider = provider;
-    await this.verify();
   }
 
   private attachWalletListeners(): void {
