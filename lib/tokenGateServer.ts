@@ -4,6 +4,7 @@ import {
   MIN_HOLDING_USD,
   type VerifyHoldingResult,
 } from './verifyCore';
+import { verifyHoldingMobula } from './mobulaVerify';
 
 export { GAME_TOKEN_MINT, MIN_HOLDING_USD, type VerifyHoldingResult };
 
@@ -21,5 +22,14 @@ export async function verifyWalletHolding(
   mint = GAME_TOKEN_MINT,
   minUsd = MIN_HOLDING_USD
 ): Promise<VerifyHoldingResult> {
+  const mobulaKey = process.env.MOBULA_API_KEY?.trim();
+  if (mobulaKey) {
+    try {
+      return await verifyHoldingMobula(wallet, mobulaKey, mint, minUsd);
+    } catch {
+      // Fall back to RPC when Mobula is down or misconfigured.
+    }
+  }
+
   return verifyHolding(wallet, serverRpcUrls(), mint, minUsd);
 }

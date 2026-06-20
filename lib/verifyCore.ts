@@ -310,7 +310,7 @@ async function fetchTokenQuote(mint: string): Promise<{ priceUsd: number; symbol
   return quote;
 }
 
-function buildResult(
+export function buildResult(
   wallet: string,
   mint: string,
   minUsd: number,
