@@ -6,6 +6,19 @@ import {
   type SolanaWalletProvider,
 } from './walletProvider';
 
+function gateMessage(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value.trim()) return value;
+  return fallback;
+}
+
+function gateErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    const msg = err.message?.trim();
+    if (msg && msg !== '[object Object]') return msg;
+  }
+  return 'Could not verify wallet. Tap Recheck.';
+}
+
 export type GateStatus =
   | 'bypassed'
   | 'disconnected'
@@ -143,7 +156,7 @@ export class TokenGate {
           tokenBalance: result.tokenBalance,
           tokenPriceUsd: null,
           holdingUsd: null,
-          message: result.message,
+          message: gateMessage(result.message, 'Could not fetch token price. Try again in a moment.'),
         });
         return false;
       }
@@ -156,7 +169,7 @@ export class TokenGate {
           tokenBalance: result.tokenBalance,
           tokenPriceUsd: result.tokenPriceUsd,
           holdingUsd: result.holdingUsd,
-          message: result.message,
+          message: gateMessage(result.message, 'Access granted.'),
         });
         return true;
       }
@@ -168,11 +181,11 @@ export class TokenGate {
         tokenBalance: result.tokenBalance,
         tokenPriceUsd: result.tokenPriceUsd,
         holdingUsd: result.holdingUsd,
-        message: result.message,
+        message: gateMessage(result.message, 'Insufficient token balance.'),
       });
       return false;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Balance check failed';
+      const msg = gateErrorMessage(err);
       this.setSnapshot({
         status: 'error',
         walletAddress: address,

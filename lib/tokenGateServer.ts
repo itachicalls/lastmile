@@ -5,16 +5,21 @@ const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 function rpcEndpoints(): string[] {
   return [
-    process.env.SOLANA_RPC_URL,
-    process.env.VITE_SOLANA_RPC,
     'https://solana-rpc.publicnode.com',
     'https://rpc.ankr.com/solana',
     'https://api.mainnet-beta.solana.com',
-  ].filter((url): url is string => Boolean(url));
+  ];
 }
 
-interface RpcError {
-  message: string;
+function rpcErrorMessage(error: unknown): string {
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const record = error as { message?: unknown; code?: unknown };
+    if (typeof record.message === 'string') return record.message;
+    if (record.message != null) return JSON.stringify(record.message);
+    return JSON.stringify(error);
+  }
+  return 'RPC request failed';
 }
 
 async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
@@ -32,9 +37,9 @@ async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
         continue;
       }
 
-      const json = (await res.json()) as { result?: T; error?: RpcError };
+      const json = (await res.json()) as { result?: T; error?: unknown };
       if (json.error) {
-        lastError = new Error(json.error.message);
+        lastError = new Error(rpcErrorMessage(json.error));
         continue;
       }
       if (json.result === undefined) {

@@ -294,9 +294,9 @@ export class UIManager {
           <span class="wallet-address">${snap.walletAddress.slice(0, 4)}…${snap.walletAddress.slice(-4)}</span>
         </div>
         ${holding}
-        <div class="wallet-message">${snap.message}</div>`;
+        <div class="wallet-message">${typeof snap.message === 'string' ? snap.message : 'Verification failed. Tap Recheck.'}</div>`;
     } else {
-      statusEl.innerHTML = `<div class="wallet-message">${snap.message}</div>`;
+      statusEl.innerHTML = `<div class="wallet-message">${typeof snap.message === 'string' ? snap.message : 'Connect your wallet to verify holdings.'}</div>`;
     }
 
     const granted = this.tokenGate.hasAccess();
