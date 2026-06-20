@@ -11,6 +11,13 @@ new UIManager(uiRoot, save, tokenGate);
 
 initViewportLock();
 
+window.addEventListener('pageshow', () => {
+  tokenGate.onPageVisible();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') tokenGate.onPageVisible();
+});
+
 function blockZoom(e: Event): void {
   const t = e.target as HTMLElement;
   if (t.closest('.shop-scroll, .levels-screen, .scroll-touch, .menu-scroll')) return;

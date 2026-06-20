@@ -901,6 +901,26 @@ h1 {
 }
 .wallet-buy-link:hover { text-decoration: underline; }
 
+.wallet-browser-banner {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 213, 79, 0.1);
+  border: 1px solid rgba(255, 213, 79, 0.35);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.88);
+}
+.wallet-browser-banner p {
+  margin-bottom: 8px;
+}
+.wallet-browser-banner .wallet-btn {
+  width: 100%;
+  min-height: 42px;
+  font-size: 0.84rem;
+}
+
 .wallet-gate.granted .wallet-gate-desc,
 .wallet-gate.granted .wallet-buy-link {
   display: none;

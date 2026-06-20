@@ -14,7 +14,7 @@ import { setGameActive } from '../game/viewport';
 import { hazardPoolLabels } from '../data/hazards';
 import { TokenGate } from '../wallet/TokenGate';
 import { GAME_TOKEN_MINT, MIN_HOLDING_USD, PUMP_FUN_URL, shortMint, TOKEN_GATE_ENABLED } from '../wallet/config';
-import { mobileWalletHint } from '../wallet/mobileWallet';
+import { mobileWalletHint, isInsidePhantomBrowser, externalPlayUrl } from '../wallet/mobileWallet';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -145,6 +145,11 @@ export class UIManager {
                 <div class="stat-pill"><span>📦</span> ${s.totalDeliveries} drops</div>
               </div>
               ${TOKEN_GATE_ENABLED ? `
+              ${IS_MOBILE && isInsidePhantomBrowser() ? `
+              <div class="wallet-browser-banner" id="wallet-browser-banner">
+                <p>You're in Phantom's browser. For Safari/Chrome play, copy this link and open it there:</p>
+                <button type="button" class="wallet-btn wallet-btn-ghost" id="btn-copy-safari-link">Copy link for Safari</button>
+              </div>` : ''}
               <div class="wallet-gate" id="wallet-gate">
                 <div class="wallet-gate-accent" aria-hidden="true"></div>
                 <div class="wallet-gate-head">
@@ -156,9 +161,11 @@ export class UIManager {
                 </div>
                 <p class="wallet-gate-desc">${
                   IS_MOBILE
-                    ? 'Tap <strong>Connect</strong> — approve in the <strong>Phantom app</strong>, then play here in your browser. Hold <strong>$' +
-                      MIN_HOLDING_USD +
-                      '+</strong> of the token.'
+                    ? isInsidePhantomBrowser()
+                      ? 'Connect here, or copy the link above and open in <strong>Safari</strong> to play in your browser.'
+                      : 'Tap <strong>Connect</strong> — your wallet app opens briefly, then you play here. Hold <strong>$' +
+                        MIN_HOLDING_USD +
+                        '+</strong> of the token.'
                     : 'Connect <strong>Phantom</strong> or <strong>Solflare</strong>, sign, and hold <strong>$' +
                       MIN_HOLDING_USD +
                       '+</strong> of the token.'
@@ -171,7 +178,9 @@ export class UIManager {
                   <div class="wallet-gate-status" id="wallet-gate-status">
                     <div class="wallet-message">${
                       IS_MOBILE
-                        ? 'You stay in Safari/Chrome — Phantom opens only to connect and sign.'
+                        ? isInsidePhantomBrowser()
+                          ? 'Playing inside Phantom works, but Safari/Chrome is recommended.'
+                          : 'You stay in this browser — your wallet app only opens to connect and sign.'
                         : 'Tap Connect — approve connection, then approve the signature.'
                     }</div>
                   </div>
@@ -204,6 +213,19 @@ export class UIManager {
     this.root.appendChild(screen);
     this.menuScreen = screen;
     if (TOKEN_GATE_ENABLED) this.bindWalletGate(screen);
+
+    const copySafariBtn = screen.querySelector('#btn-copy-safari-link');
+    if (copySafariBtn) {
+      copySafariBtn.addEventListener('click', () => {
+        const url = externalPlayUrl();
+        void navigator.clipboard.writeText(url).then(
+          () => this.toast('Link copied — paste in Safari or Chrome'),
+          () => {
+            window.prompt('Copy this link and open in Safari:', url);
+          }
+        );
+      });
+    }
 
     screen.querySelectorAll('.character-preview').forEach((el) => {
       const id = (el as HTMLElement).dataset.preview as MailmanId;
@@ -336,7 +358,7 @@ export class UIManager {
     playBtn.disabled = !granted;
     playBtn.title = granted ? '' : `Hold at least $${MIN_HOLDING_USD} of the game token to play`;
 
-    const busy = snap.status === 'connecting' || snap.status === 'signing' || snap.status === 'checking';
+    const busyChecking = snap.status === 'checking';
     connectBtn.classList.toggle('hidden', linked);
     connectedPill.classList.toggle('hidden', !linked);
     actionRow.classList.toggle('hidden', !linked);
@@ -344,15 +366,15 @@ export class UIManager {
     if (!linked) {
       connectBtn.textContent =
         snap.status === 'connecting'
-          ? 'Opening Phantom…'
+          ? 'Opening wallet…'
           : snap.status === 'signing'
-            ? 'Approve in Phantom…'
+            ? 'Approve in wallet…'
             : 'Connect Wallet';
     }
 
-    connectBtn.disabled = busy;
-    recheckBtn.disabled = busy;
-    disconnectBtn.disabled = busy;
+    connectBtn.disabled = busyChecking;
+    recheckBtn.disabled = busyChecking;
+    disconnectBtn.disabled = busyChecking;
   }
 
   private async requireTokenAccess(onGranted: () => void): Promise<void> {

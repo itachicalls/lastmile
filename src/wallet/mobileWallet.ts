@@ -3,4 +3,6 @@ export {
   mobileWalletHint,
   isMobileWalletSigned,
   getMobileWalletAddress,
+  isInsidePhantomBrowser,
+  externalPlayUrl,
 } from './phantomMobile';

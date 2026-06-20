@@ -14,6 +14,7 @@ import {
 } from './phantomMobile';
 import { clearCachedVerify } from './verifyCache';
 import { verifyHoldingApi } from './verifyApi';
+import { withTimeout } from './fetchUtils';
 import {
   getWalletProvider,
   signAccessMessage,
@@ -62,6 +63,7 @@ const INITIAL_SNAPSHOT: GateSnapshot = {
 };
 
 const CHECKING_WATCHDOG_MS = 10000;
+const WALLET_ACTION_TIMEOUT_MS = 120_000;
 
 export class TokenGate {
   private snapshot: GateSnapshot = { ...INITIAL_SNAPSHOT };
@@ -71,7 +73,9 @@ export class TokenGate {
   private verifySeq = 0;
   private verifyPromise: Promise<boolean> | null = null;
   private checkingWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private disconnecting = false;
   private boundOnWalletChange = () => {
+    if (this.disconnecting) return;
     this.signedWallet = null;
     this.verifySeq += 1;
     void this.verify();
@@ -85,6 +89,20 @@ export class TokenGate {
     } else {
       void this.resumeMobileFlow();
     }
+  }
+
+  /** Clear stale connect/sign UI if user bailed out of the wallet app. */
+  onPageVisible(): void {
+    if (!TOKEN_GATE_ENABLED) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('phantom') || params.has('phantom_encryption_public_key')) return;
+    if (this.snapshot.status !== 'connecting' && this.snapshot.status !== 'signing') return;
+    this.verifyPromise = null;
+    this.setSnapshot({
+      status: 'disconnected',
+      walletAddress: null,
+      message: mobileWalletHint(),
+    });
   }
 
   subscribe(listener: GateListener): () => void {
@@ -104,14 +122,18 @@ export class TokenGate {
   async connect(): Promise<void> {
     if (!TOKEN_GATE_ENABLED) return;
 
+    this.verifyPromise = null;
+    this.clearCheckingWatchdog();
+    this.verifySeq += 1;
+    this.signedWallet = null;
+    clearCachedVerify();
+
     if (usesMobileWalletBridge()) {
-      this.signedWallet = null;
-      this.verifySeq += 1;
       clearMobileWalletSession();
       this.setSnapshot({
         status: 'connecting',
         walletAddress: null,
-        message: 'Opening Phantom… approve connect, then sign. You return here to play.',
+        message: 'Opening your wallet… approve connect, then sign. You return here to play.',
       });
       startPhantomConnect();
       return;
@@ -124,13 +146,23 @@ export class TokenGate {
         walletAddress: null,
         message: 'No wallet found. Install Phantom or Solflare, then refresh.',
       });
-      window.open('https://phantom.app/download', '_blank', 'noopener,noreferrer');
       return;
     }
 
+    await this.connectInjected(provider);
+  }
+
+  private async connectInjected(provider: SolanaWalletProvider): Promise<void> {
+    this.detachWalletListeners();
+    try {
+      if (provider.isConnected || provider.publicKey) {
+        await withTimeout(provider.disconnect(), 8000, 'Disconnect timed out').catch(() => undefined);
+      }
+    } catch {
+      /* fresh connect */
+    }
+
     this.provider = provider;
-    this.signedWallet = null;
-    this.verifySeq += 1;
     this.attachWalletListeners();
 
     try {
@@ -140,7 +172,11 @@ export class TokenGate {
         message: 'Approve the connection in your wallet…',
       });
 
-      await provider.connect({ onlyIfTrusted: false });
+      await withTimeout(
+        provider.connect({ onlyIfTrusted: false }),
+        WALLET_ACTION_TIMEOUT_MS,
+        'Connection timed out. Tap Connect again.'
+      );
       const address = walletAddress(provider);
       if (!address) {
         throw new Error('Wallet connected but no address was returned.');
@@ -152,7 +188,11 @@ export class TokenGate {
         message: 'Approve the signature in your wallet…',
       });
 
-      await signAccessMessage(provider, address);
+      await withTimeout(
+        signAccessMessage(provider, address),
+        WALLET_ACTION_TIMEOUT_MS,
+        'Signature timed out. Tap Connect again.'
+      );
       this.signedWallet = address;
 
       await this.verify();
@@ -194,7 +234,7 @@ export class TokenGate {
         this.setSnapshot({
           status: 'signing',
           walletAddress: address,
-          message: 'Connected. Approve the signature in Phantom…',
+          message: 'Connected. Approve the signature in your wallet…',
         });
         startPhantomSign();
         return;
@@ -318,17 +358,28 @@ export class TokenGate {
 
   async disconnect(): Promise<void> {
     if (!TOKEN_GATE_ENABLED) return;
+
+    this.disconnecting = true;
     this.verifySeq += 1;
+    this.verifyPromise = null;
     this.clearCheckingWatchdog();
+    this.detachWalletListeners();
     clearMobileWalletSession();
     clearCachedVerify();
-    const provider = this.provider ?? getWalletProvider();
     this.signedWallet = null;
+
+    const provider = this.provider ?? getWalletProvider();
+    this.provider = null;
+
     try {
-      await provider?.disconnect();
+      await withTimeout(provider?.disconnect() ?? Promise.resolve(), 8000, 'Disconnect timed out').catch(
+        () => undefined
+      );
     } catch {
       /* wallet may already be disconnected */
     }
+
+    this.disconnecting = false;
     this.setSnapshot({
       status: 'disconnected',
       walletAddress: null,
@@ -347,6 +398,14 @@ export class TokenGate {
     provider.removeListener('accountChanged', this.boundOnWalletChange);
     provider.on('disconnect', this.boundOnWalletChange);
     provider.on('accountChanged', this.boundOnWalletChange);
+  }
+
+  private detachWalletListeners(): void {
+    const provider = this.provider;
+    if (!provider?.removeListener) return;
+
+    provider.removeListener('disconnect', this.boundOnWalletChange);
+    provider.removeListener('accountChanged', this.boundOnWalletChange);
   }
 
   private armCheckingWatchdog(seq: number, address: string): void {

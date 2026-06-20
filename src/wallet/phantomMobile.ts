@@ -1,7 +1,6 @@
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { IS_MOBILE } from '../game/platform';
-import { getWalletProvider } from './walletProvider';
 import { buildAccessMessageText } from './walletProvider';
 
 const STORAGE_KEY = 'mailrun_phantom_mobile';
@@ -69,9 +68,27 @@ function encryptPayload(payload: unknown, secret: Uint8Array): [Uint8Array, Uint
   return [nonce, encrypted];
 }
 
-/** Mobile Safari/Chrome — no injected wallet; use Phantom app deeplinks and return here. */
+/** Mobile Safari/Chrome — deeplink to wallet app, return to this browser. */
+export function isInsidePhantomBrowser(): boolean {
+  return Boolean(window.solana?.isPhantom);
+}
+
 export function usesMobileWalletBridge(): boolean {
-  return IS_MOBILE && !getWalletProvider();
+  if (!IS_MOBILE) return false;
+  // In Phantom's in-app browser use the injected wallet; Safari/Chrome use deeplinks.
+  if (isInsidePhantomBrowser()) return false;
+  return true;
+}
+
+export function externalPlayUrl(): string {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('phantom');
+  url.searchParams.delete('phantom_encryption_public_key');
+  url.searchParams.delete('nonce');
+  url.searchParams.delete('data');
+  url.searchParams.delete('errorCode');
+  url.searchParams.delete('errorMessage');
+  return url.toString();
 }
 
 export function getMobileWalletAddress(): string | null {
@@ -87,6 +104,7 @@ export function isMobileWalletSigned(): boolean {
 
 export function clearMobileWalletSession(): void {
   sessionStorage.removeItem(STORAGE_KEY);
+  clearPhantomQueryParams();
 }
 
 export function startPhantomConnect(): void {
@@ -202,8 +220,8 @@ export function mobileWalletHint(): string {
   if (!IS_MOBILE) {
     return 'Install Phantom or Solflare, refresh, then connect.';
   }
-  if (getWalletProvider()) {
-    return 'Tap Connect and approve both prompts in your wallet.';
+  if (isInsidePhantomBrowser()) {
+    return 'Copy the site link and open it in Safari to play in your browser, or connect here.';
   }
-  return 'Tap Connect — approve in the Phantom app, then you return here to play.';
+  return 'Tap Connect — your wallet app opens briefly, then you play here in Safari/Chrome.';
 }
