@@ -1,4 +1,5 @@
 import { TOKEN_GATE_ENABLED } from './config';
+import { needsPhantomMobileApp, openPhantomMobileBrowser, mobileWalletHint } from './mobileWallet';
 import { verifyHoldingApi } from './verifyApi';
 import {
   getWalletProvider,
@@ -43,7 +44,7 @@ const INITIAL_SNAPSHOT: GateSnapshot = {
   tokenPriceUsd: null,
   holdingUsd: null,
   message: TOKEN_GATE_ENABLED
-    ? 'Connect Phantom and sign to verify your token holdings.'
+    ? mobileWalletHint()
     : 'Token gate bypassed for local development.',
 };
 
@@ -82,12 +83,22 @@ export class TokenGate {
 
     const provider = getWalletProvider();
     if (!provider) {
+      if (needsPhantomMobileApp()) {
+        this.setSnapshot({
+          status: 'connecting',
+          walletAddress: null,
+          message: 'Opening Phantom… once the game loads there, tap Connect Phantom again.',
+        });
+        openPhantomMobileBrowser();
+        return;
+      }
+
       this.setSnapshot({
         status: 'error',
         walletAddress: null,
-        message: 'Phantom not detected. Install Phantom, open this site in its browser, then refresh.',
+        message: 'Phantom not found. Install the extension, refresh, then connect.',
       });
-      window.open('https://phantom.app/', '_blank', 'noopener,noreferrer');
+      window.open('https://phantom.app/download', '_blank', 'noopener,noreferrer');
       return;
     }
 
