@@ -6,7 +6,7 @@ export const MIN_HOLDING_USD = 3;
 
 export const PUMP_FUN_URL = `https://pump.fun/coin/${GAME_TOKEN_MINT}`;
 
-/** Set VITE_SKIP_TOKEN_GATE=true in .env.local to bypass during development. */
+/** Production builds set VITE_SKIP_TOKEN_GATE=true (.env.production / CI). Local: .env.local */
 export const TOKEN_GATE_ENABLED = import.meta.env.VITE_SKIP_TOKEN_GATE !== 'true';
 
 export function shortMint(mint = GAME_TOKEN_MINT): string {

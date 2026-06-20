@@ -23,6 +23,7 @@ jobs:
       - run: npm run build
         env:
           GITHUB_PAGES: 'true'
+          VITE_SKIP_TOKEN_GATE: 'true'
           VITE_VERIFY_API_URL: ${{ vars.VERIFY_API_URL }}
 
       - name: Vercel static config for gh-pages branch

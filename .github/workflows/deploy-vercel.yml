@@ -32,6 +32,7 @@ jobs:
         if: env.VERCEL_TOKEN != ''
         run: vercel deploy --prod --token=$VERCEL_TOKEN
         env:
+          VITE_SKIP_TOKEN_GATE: 'true'
           VITE_VERIFY_API_URL: ${{ vars.VERIFY_API_URL }}
 
       - name: Vercel deploy skipped
