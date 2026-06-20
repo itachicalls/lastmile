@@ -53,8 +53,11 @@ export class TokenGate {
   private listeners = new Set<GateListener>();
   private provider: SolanaWalletProvider | null = null;
   private signedWallet: string | null = null;
+  private verifySeq = 0;
+  private verifyPromise: Promise<boolean> | null = null;
   private boundOnWalletChange = () => {
     this.signedWallet = null;
+    this.verifySeq += 1;
     void this.verify();
   };
 
@@ -104,6 +107,7 @@ export class TokenGate {
 
     this.provider = provider;
     this.signedWallet = null;
+    this.verifySeq += 1;
     this.attachWalletListeners();
 
     try {
@@ -141,6 +145,16 @@ export class TokenGate {
 
   async verify(): Promise<boolean> {
     if (!TOKEN_GATE_ENABLED) return true;
+    if (this.verifyPromise) return this.verifyPromise;
+
+    this.verifyPromise = this.runVerify().finally(() => {
+      this.verifyPromise = null;
+    });
+    return this.verifyPromise;
+  }
+
+  private async runVerify(): Promise<boolean> {
+    if (!TOKEN_GATE_ENABLED) return true;
 
     const provider = this.provider ?? getWalletProvider();
     if (!provider) {
@@ -150,7 +164,7 @@ export class TokenGate {
         tokenBalance: null,
         tokenPriceUsd: null,
         holdingUsd: null,
-        message: 'Connect Phantom and sign to verify your token holdings.',
+        message: mobileWalletHint(),
       });
       return false;
     }
@@ -163,7 +177,7 @@ export class TokenGate {
         tokenBalance: null,
         tokenPriceUsd: null,
         holdingUsd: null,
-        message: 'Connect Phantom and sign to verify your token holdings.',
+        message: mobileWalletHint(),
       });
       return false;
     }
@@ -172,11 +186,12 @@ export class TokenGate {
       this.setSnapshot({
         status: 'disconnected',
         walletAddress: address,
-        message: 'Tap Connect Wallet and approve both prompts in Phantom.',
+        message: 'Tap Connect Phantom and approve both prompts.',
       });
       return false;
     }
 
+    const seq = ++this.verifySeq;
     this.setSnapshot({
       status: 'checking',
       walletAddress: address,
@@ -185,6 +200,7 @@ export class TokenGate {
 
     try {
       const result = await verifyHoldingApi(address);
+      if (seq !== this.verifySeq) return this.snapshot.status === 'granted';
 
       if (!result.tokenPriceUsd) {
         this.setSnapshot({
@@ -193,7 +209,7 @@ export class TokenGate {
           tokenBalance: result.tokenBalance,
           tokenPriceUsd: null,
           holdingUsd: null,
-          message: gateMessage(result.message, 'Could not fetch token price. Try again in a moment.'),
+          message: gateMessage(result.message, 'Could not fetch token price. Tap Recheck.'),
         });
         return false;
       }
@@ -222,6 +238,7 @@ export class TokenGate {
       });
       return false;
     } catch (err) {
+      if (seq !== this.verifySeq) return this.snapshot.status === 'granted';
       this.setSnapshot({
         status: 'error',
         walletAddress: address,
@@ -233,6 +250,7 @@ export class TokenGate {
 
   async disconnect(): Promise<void> {
     if (!TOKEN_GATE_ENABLED) return;
+    this.verifySeq += 1;
     const provider = this.provider ?? getWalletProvider();
     this.signedWallet = null;
     try {
@@ -246,7 +264,7 @@ export class TokenGate {
       tokenBalance: null,
       tokenPriceUsd: null,
       holdingUsd: null,
-      message: 'Connect Phantom and sign to verify your token holdings.',
+      message: mobileWalletHint(),
     });
   }
 
