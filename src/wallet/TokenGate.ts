@@ -1,5 +1,17 @@
 import { TOKEN_GATE_ENABLED } from './config';
-import { needsPhantomMobileApp, openPhantomMobileBrowser, mobileWalletHint } from './mobileWallet';
+import {
+  mobileWalletHint,
+  usesMobileWalletBridge,
+  isMobileWalletSigned,
+  getMobileWalletAddress,
+} from './mobileWallet';
+import {
+  consumePhantomRejectMessage,
+  handlePhantomCallback,
+  startPhantomConnect,
+  startPhantomSign,
+  clearMobileWalletSession,
+} from './phantomMobile';
 import { verifyHoldingApi } from './verifyApi';
 import {
   getWalletProvider,
@@ -67,7 +79,11 @@ export class TokenGate {
   constructor() {
     if (!TOKEN_GATE_ENABLED) return;
     this.provider = getWalletProvider();
-    this.attachWalletListeners();
+    if (this.provider) {
+      this.attachWalletListeners();
+    } else {
+      void this.resumeMobileFlow();
+    }
   }
 
   subscribe(listener: GateListener): () => void {
@@ -87,22 +103,25 @@ export class TokenGate {
   async connect(): Promise<void> {
     if (!TOKEN_GATE_ENABLED) return;
 
+    if (usesMobileWalletBridge()) {
+      this.signedWallet = null;
+      this.verifySeq += 1;
+      clearMobileWalletSession();
+      this.setSnapshot({
+        status: 'connecting',
+        walletAddress: null,
+        message: 'Opening Phantom… approve connect, then sign. You return here to play.',
+      });
+      startPhantomConnect();
+      return;
+    }
+
     const provider = getWalletProvider();
     if (!provider) {
-      if (needsPhantomMobileApp()) {
-        this.setSnapshot({
-          status: 'connecting',
-          walletAddress: null,
-          message: 'Opening Phantom… once the game loads there, tap Connect Phantom again.',
-        });
-        openPhantomMobileBrowser();
-        return;
-      }
-
       this.setSnapshot({
         status: 'error',
         walletAddress: null,
-        message: 'Phantom not found. Install the extension, refresh, then connect.',
+        message: 'No wallet found. Install Phantom or Solflare, then refresh.',
       });
       window.open('https://phantom.app/download', '_blank', 'noopener,noreferrer');
       return;
@@ -117,7 +136,7 @@ export class TokenGate {
       this.setSnapshot({
         status: 'connecting',
         walletAddress: null,
-        message: 'Approve the connection in Phantom…',
+        message: 'Approve the connection in your wallet…',
       });
 
       await provider.connect({ onlyIfTrusted: false });
@@ -129,7 +148,7 @@ export class TokenGate {
       this.setSnapshot({
         status: 'signing',
         walletAddress: address,
-        message: 'Approve the signature in Phantom…',
+        message: 'Approve the signature in your wallet…',
       });
 
       await signAccessMessage(provider, address);
@@ -156,23 +175,63 @@ export class TokenGate {
     return this.verifyPromise;
   }
 
+  private async resumeMobileFlow(): Promise<void> {
+    const rejectMsg = consumePhantomRejectMessage();
+    if (rejectMsg) {
+      this.setSnapshot({
+        status: 'error',
+        walletAddress: getMobileWalletAddress(),
+        message: rejectMsg,
+      });
+      return;
+    }
+
+    try {
+      const result = handlePhantomCallback();
+      if (result === 'connect_ok') {
+        const address = getMobileWalletAddress();
+        this.setSnapshot({
+          status: 'signing',
+          walletAddress: address,
+          message: 'Connected. Approve the signature in Phantom…',
+        });
+        startPhantomSign();
+        return;
+      }
+
+      if (result === 'sign_ok') {
+        const address = getMobileWalletAddress();
+        if (!address) return;
+        this.signedWallet = address;
+        await this.verify();
+        return;
+      }
+    } catch (err) {
+      this.setSnapshot({
+        status: 'error',
+        walletAddress: getMobileWalletAddress(),
+        message: walletErrorMessage(err),
+      });
+      return;
+    }
+
+    if (isMobileWalletSigned()) {
+      const address = getMobileWalletAddress();
+      if (address) {
+        this.signedWallet = address;
+      }
+    }
+  }
+
   private async runVerify(): Promise<boolean> {
     if (!TOKEN_GATE_ENABLED) return true;
 
+    const mobileSigned = isMobileWalletSigned();
+    const mobileAddress = mobileSigned ? getMobileWalletAddress() : null;
     const provider = this.provider ?? getWalletProvider();
-    if (!provider) {
-      this.setSnapshot({
-        status: 'disconnected',
-        walletAddress: null,
-        tokenBalance: null,
-        tokenPriceUsd: null,
-        holdingUsd: null,
-        message: mobileWalletHint(),
-      });
-      return false;
-    }
+    const injectedAddress = provider ? walletAddress(provider) : null;
+    const address = mobileAddress ?? injectedAddress;
 
-    const address = walletAddress(provider);
     if (!address) {
       this.setSnapshot({
         status: 'disconnected',
@@ -185,11 +244,13 @@ export class TokenGate {
       return false;
     }
 
-    if (this.signedWallet !== address) {
+    if (mobileSigned) {
+      this.signedWallet = address;
+    } else if (this.signedWallet !== address) {
       this.setSnapshot({
         status: 'disconnected',
         walletAddress: address,
-        message: 'Tap Connect Phantom and approve both prompts.',
+        message: 'Tap Connect and approve both wallet prompts.',
       });
       return false;
     }
@@ -258,6 +319,7 @@ export class TokenGate {
     if (!TOKEN_GATE_ENABLED) return;
     this.verifySeq += 1;
     this.clearCheckingWatchdog();
+    clearMobileWalletSession();
     const provider = this.provider ?? getWalletProvider();
     this.signedWallet = null;
     try {

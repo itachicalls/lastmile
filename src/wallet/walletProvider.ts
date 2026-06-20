@@ -61,6 +61,17 @@ export function walletErrorMessage(err: unknown): string {
   return 'Wallet request failed.';
 }
 
+export function buildAccessMessageText(address: string): string {
+  return [
+    'Sign in to Mail Run',
+    '',
+    'This proves you own the wallet. No transaction or fee.',
+    `Site: ${window.location.host}`,
+    `Wallet: ${address}`,
+    `Time: ${new Date().toISOString()}`,
+  ].join('\n');
+}
+
 export async function signAccessMessage(
   provider: SolanaWalletProvider,
   address: string
@@ -69,14 +80,7 @@ export async function signAccessMessage(
     throw new Error('This wallet cannot sign messages. Use Phantom or Solflare.');
   }
 
-  const text = [
-    'Sign in to Mail Run',
-    '',
-    'This proves you own the wallet. No transaction or fee.',
-    `Site: ${window.location.host}`,
-    `Wallet: ${address}`,
-    `Time: ${new Date().toISOString()}`,
-  ].join('\n');
+  const text = buildAccessMessageText(address);
 
   const encoded = new TextEncoder().encode(text);
   const result = await provider.signMessage(encoded, 'utf8');

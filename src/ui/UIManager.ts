@@ -14,7 +14,7 @@ import { setGameActive } from '../game/viewport';
 import { hazardPoolLabels } from '../data/hazards';
 import { TokenGate } from '../wallet/TokenGate';
 import { GAME_TOKEN_MINT, MIN_HOLDING_USD, PUMP_FUN_URL, shortMint, TOKEN_GATE_ENABLED } from '../wallet/config';
-import { needsPhantomMobileApp } from '../wallet/mobileWallet';
+import { mobileWalletHint } from '../wallet/mobileWallet';
 
 const DISTRICT_MOOD: Record<number, string> = {
   1: 'district-sunny',
@@ -156,10 +156,10 @@ export class UIManager {
                 </div>
                 <p class="wallet-gate-desc">${
                   IS_MOBILE
-                    ? 'Open in <strong>Phantom</strong> and sign to verify <strong>$' +
+                    ? 'Tap <strong>Connect</strong> — approve in the <strong>Phantom app</strong>, then play here in your browser. Hold <strong>$' +
                       MIN_HOLDING_USD +
-                      '+</strong> holdings.'
-                    : 'Connect <strong>Phantom</strong>, sign, and hold <strong>$' +
+                      '+</strong> of the token.'
+                    : 'Connect <strong>Phantom</strong> or <strong>Solflare</strong>, sign, and hold <strong>$' +
                       MIN_HOLDING_USD +
                       '+</strong> of the token.'
                 }</p>
@@ -171,14 +171,12 @@ export class UIManager {
                   <div class="wallet-gate-status" id="wallet-gate-status">
                     <div class="wallet-message">${
                       IS_MOBILE
-                        ? 'In Safari? Tap Open in Phantom. In Phantom? Tap Connect.'
-                        : 'Tap Connect Phantom — approve connection, then approve the signature.'
+                        ? 'You stay in Safari/Chrome — Phantom opens only to connect and sign.'
+                        : 'Tap Connect — approve connection, then approve the signature.'
                     }</div>
                   </div>
                   <div class="wallet-gate-actions">
-                    <button type="button" class="wallet-btn wallet-btn-connect" id="btn-wallet-connect">${
-                      IS_MOBILE && needsPhantomMobileApp() ? 'Open in Phantom' : 'Connect Phantom'
-                    }</button>
+                    <button type="button" class="wallet-btn wallet-btn-connect" id="btn-wallet-connect">Connect Wallet</button>
                     <div class="wallet-connected-pill hidden" id="wallet-connected-pill" aria-live="polite">
                       <span class="wallet-connected-check" aria-hidden="true">✓</span>
                       Wallet Connected
@@ -344,13 +342,12 @@ export class UIManager {
     actionRow.classList.toggle('hidden', !linked);
 
     if (!linked) {
-      const openInApp = IS_MOBILE && needsPhantomMobileApp();
       connectBtn.textContent =
-        snap.status === 'connecting' || snap.status === 'signing'
-          ? 'Approve in Phantom…'
-          : openInApp
-            ? 'Open in Phantom'
-            : 'Connect Phantom';
+        snap.status === 'connecting'
+          ? 'Opening Phantom…'
+          : snap.status === 'signing'
+            ? 'Approve in Phantom…'
+            : 'Connect Wallet';
     }
 
     connectBtn.disabled = busy;
@@ -369,7 +366,7 @@ export class UIManager {
       return;
     }
     const msg = this.tokenGate.getSnapshot().message;
-    this.toast(msg.includes('Phantom') ? msg : `Connect Phantom first. ${msg}`);
+    this.toast(msg.includes('Phantom') || msg.includes('wallet') ? msg : `Connect your wallet first. ${msg}`);
   }
 
   showLevels(): void {
