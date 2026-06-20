@@ -25,6 +25,9 @@ jobs:
           GITHUB_PAGES: 'true'
           VITE_VERIFY_API_URL: ${{ vars.VERIFY_API_URL }}
 
+      - name: Vercel static config for gh-pages branch
+        run: cp scripts/vercel-static.json dist/vercel.json
+
       - uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages

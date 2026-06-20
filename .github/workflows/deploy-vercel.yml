@@ -1,4 +1,4 @@
-name: Deploy verify API to Vercel
+name: Deploy to Vercel
 
 on:
   push:
@@ -6,9 +6,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-api:
+  deploy:
     runs-on: ubuntu-latest
-    if: ${{ secrets.VERCEL_TOKEN != '' }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -17,16 +20,15 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
 
       - name: Pull Vercel settings
-        run: npx vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        if: env.VERCEL_TOKEN != ''
+        run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
 
-      - name: Deploy API + site to Vercel
-        run: npx vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build and deploy to Vercel
+        if: env.VERCEL_TOKEN != ''
+        run: vercel deploy --prod --token=$VERCEL_TOKEN
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VITE_VERIFY_API_URL: ${{ vars.VERIFY_API_URL }}
