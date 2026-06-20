@@ -23,7 +23,7 @@ jobs:
       - run: npm run build
         env:
           GITHUB_PAGES: 'true'
-          VITE_VERIFY_API_URL: ${{ vars.VERIFY_API_URL != '' && vars.VERIFY_API_URL || 'https://minigame.vercel.app/api/verify-holding' }}
+          VITE_VERIFY_API_URL: ${{ vars.VERIFY_API_URL }}
 
       - name: Vercel static config for gh-pages branch
         run: cp scripts/vercel-static.json dist/vercel.json

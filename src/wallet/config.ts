@@ -13,9 +13,7 @@ export function shortMint(mint = GAME_TOKEN_MINT): string {
   return `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 }
 
-/** Server verify endpoints tried in parallel (env + fallbacks). */
+/** Server verify endpoint — set VITE_VERIFY_API_URL at build time (see GitHub VERIFY_API_URL var). */
 export const VERIFY_API_URLS: string[] = [
   import.meta.env.VITE_VERIFY_API_URL?.trim(),
-  'https://minigame.vercel.app/api/verify-holding',
-  'https://lastmile.vercel.app/api/verify-holding',
 ].filter((url): url is string => Boolean(url));
