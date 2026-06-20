@@ -2,21 +2,12 @@ import { SaveManager } from './save/SaveManager';
 import { UIManager } from './ui/UIManager';
 import { IS_MOBILE } from './game/platform';
 import { initViewportLock } from './game/viewport';
-import { TokenGate } from './wallet/TokenGate';
 
 const save = new SaveManager();
-const tokenGate = new TokenGate();
 const uiRoot = document.getElementById('ui-root')!;
-new UIManager(uiRoot, save, tokenGate);
+new UIManager(uiRoot, save);
 
 initViewportLock();
-
-window.addEventListener('pageshow', () => {
-  tokenGate.onPageVisible();
-});
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') tokenGate.onPageVisible();
-});
 
 function blockZoom(e: Event): void {
   const t = e.target as HTMLElement;
