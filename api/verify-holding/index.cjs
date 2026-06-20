@@ -1,49 +1,17 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
 const GAME_TOKEN_MINT = 'BzStxA5qec2FurM26CjuFcGQ1en9uKTQd2D1eiVJpump';
 const MIN_HOLDING_USD = 3;
 const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const MOBULA_PORTFOLIO_URL = 'https://api.mobula.io/api/1/wallet/portfolio';
 const MOBULA_TIMEOUT_MS = 8000;
 
-interface VerifyHoldingResult {
-  granted: boolean;
-  wallet: string;
-  mint: string;
-  tokenSymbol: string;
-  tokenBalance: number;
-  tokenPriceUsd: number | null;
-  holdingUsd: number | null;
-  minHoldingUsd: number;
-  message: string;
-}
-
-interface MobulaContractBalance {
-  address: string;
-  balance: number;
-  chainId: string;
-}
-
-interface MobulaAsset {
-  price: number;
-  token_balance: number;
-  estimated_balance: number;
-  contracts_balances: MobulaContractBalance[];
-  asset: { symbol: string; contracts: string[] };
-}
-
-interface MobulaPortfolioResponse {
-  data?: { assets?: MobulaAsset[] };
-}
-
-function assetMatchesMint(asset: MobulaAsset, mint: string): boolean {
+function assetMatchesMint(asset, mint) {
   if (asset.asset?.contracts?.includes(mint)) return true;
   return asset.contracts_balances?.some(
     (entry) => entry.address === mint && entry.chainId.toLowerCase().includes('solana')
   );
 }
 
-async function verifyWithMobula(wallet: string, apiKey: string): Promise<VerifyHoldingResult> {
+async function verifyWithMobula(wallet, apiKey) {
   const params = new URLSearchParams({
     wallet,
     blockchains: 'solana',
@@ -66,7 +34,7 @@ async function verifyWithMobula(wallet: string, apiKey: string): Promise<VerifyH
       throw new Error(`Mobula HTTP ${res.status}`);
     }
 
-    const json = (await res.json()) as MobulaPortfolioResponse;
+    const json = await res.json();
     const match = json.data?.assets?.find((asset) => assetMatchesMint(asset, GAME_TOKEN_MINT));
 
     if (!match) {
@@ -133,7 +101,7 @@ async function verifyWithMobula(wallet: string, apiKey: string): Promise<VerifyH
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -172,4 +140,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const message = err instanceof Error ? err.message : 'Verification failed';
     res.status(500).json({ error: message });
   }
-}
+};

@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
-    "api/**/*.ts": {
+    "api/**/index.cjs": {
       "maxDuration": 30
     }
   },
