@@ -12,6 +12,7 @@ import {
   startPhantomSign,
   clearMobileWalletSession,
 } from './phantomMobile';
+import { clearCachedVerify } from './verifyCache';
 import { verifyHoldingApi } from './verifyApi';
 import {
   getWalletProvider,
@@ -60,7 +61,7 @@ const INITIAL_SNAPSHOT: GateSnapshot = {
     : 'Token gate bypassed for local development.',
 };
 
-const CHECKING_WATCHDOG_MS = 14000;
+const CHECKING_WATCHDOG_MS = 10000;
 
 export class TokenGate {
   private snapshot: GateSnapshot = { ...INITIAL_SNAPSHOT };
@@ -320,6 +321,7 @@ export class TokenGate {
     this.verifySeq += 1;
     this.clearCheckingWatchdog();
     clearMobileWalletSession();
+    clearCachedVerify();
     const provider = this.provider ?? getWalletProvider();
     this.signedWallet = null;
     try {

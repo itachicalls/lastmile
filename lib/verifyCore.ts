@@ -5,12 +5,13 @@ export const MIN_HOLDING_USD = 3;
 
 const WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 
-const RPC_TIMEOUT_MS = 5000;
-const QUOTE_TIMEOUT_MS = 5000;
-const VERIFY_TIMEOUT_MS = 12000;
-const QUOTE_CACHE_MS = 45_000;
+const RPC_TIMEOUT_MS = 3500;
+const QUOTE_TIMEOUT_MS = 4000;
+const VERIFY_TIMEOUT_MS = 9000;
+const QUOTE_CACHE_MS = 60_000;
 
 export interface VerifyHoldingResult {
   granted: boolean;
@@ -93,25 +94,34 @@ async function rpcCallOnce<T>(endpoint: string, method: string, params: unknown[
   return json.result;
 }
 
-async function rpcCall<T>(rpcUrls: string[], method: string, params: unknown[]): Promise<T> {
+/** First RPC endpoint to respond wins. */
+async function rpcRace<T>(rpcUrls: string[], method: string, params: unknown[]): Promise<T> {
   if (rpcUrls.length === 0) throw new Error('No RPC endpoints configured');
 
-  const attempts = rpcUrls.map((endpoint) => rpcCallOnce<T>(endpoint, method, params));
-  const results = await Promise.allSettled(attempts);
+  return new Promise<T>((resolve, reject) => {
+    let failures = 0;
+    let lastError: unknown;
 
-  for (const result of results) {
-    if (result.status === 'fulfilled') return result.value;
-  }
-
-  const firstError = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
-  throw firstError?.reason instanceof Error ? firstError.reason : new Error('Could not reach Solana');
+    for (const endpoint of rpcUrls) {
+      rpcCallOnce<T>(endpoint, method, params).then(
+        (value) => resolve(value),
+        (err) => {
+          lastError = err;
+          failures += 1;
+          if (failures === rpcUrls.length) {
+            reject(lastError instanceof Error ? lastError : new Error('Could not reach Solana'));
+          }
+        }
+      );
+    }
+  });
 }
 
-function associatedTokenAddress(owner: string, mint: string): string {
+function associatedTokenAddress(owner: string, mint: string, tokenProgram: PublicKey): string {
   const ownerKey = new PublicKey(owner);
   const mintKey = new PublicKey(mint);
   const [address] = PublicKey.findProgramAddressSync(
-    [ownerKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKey.toBuffer()],
+    [ownerKey.toBuffer(), tokenProgram.toBuffer(), mintKey.toBuffer()],
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
   return address.toBase58();
@@ -127,17 +137,75 @@ function isMissingAccountError(err: unknown): boolean {
   );
 }
 
-async function getSplTokenBalance(rpcUrls: string[], owner: string, mint: string): Promise<number> {
-  const ata = associatedTokenAddress(owner, mint);
+interface ParsedTokenAccount {
+  account: {
+    data: {
+      parsed: {
+        info: {
+          tokenAmount: { uiAmount: number | null };
+        };
+      };
+    };
+  };
+}
+
+async function balanceFromTokenAccounts(rpcUrls: string[], owner: string, mint: string): Promise<number> {
+  const result = await rpcRace<{ value: ParsedTokenAccount[] }>(rpcUrls, 'getTokenAccountsByOwner', [
+    owner,
+    { mint },
+    { encoding: 'jsonParsed' },
+  ]);
+
+  return result.value.reduce((sum, entry) => {
+    return sum + (entry.account.data.parsed.info.tokenAmount.uiAmount ?? 0);
+  }, 0);
+}
+
+async function balanceFromAta(
+  rpcUrls: string[],
+  owner: string,
+  mint: string,
+  tokenProgram: PublicKey
+): Promise<number> {
+  const ata = associatedTokenAddress(owner, mint, tokenProgram);
   try {
-    const result = await rpcCall<{ value: { uiAmount: number | null } }>(rpcUrls, 'getTokenAccountBalance', [
-      ata,
-    ]);
+    const result = await rpcRace<{ value: { uiAmount: number | null } }>(
+      rpcUrls,
+      'getTokenAccountBalance',
+      [ata]
+    );
     return result.value.uiAmount ?? 0;
   } catch (err) {
     if (isMissingAccountError(err)) return 0;
     throw err;
   }
+}
+
+/** Pump.fun tokens use Token-2022 — try every reliable lookup in parallel. */
+async function getSplTokenBalance(rpcUrls: string[], owner: string, mint: string): Promise<number> {
+  const strategies = [
+    () => balanceFromTokenAccounts(rpcUrls, owner, mint),
+    () => balanceFromAta(rpcUrls, owner, mint, TOKEN_2022_PROGRAM_ID),
+    () => balanceFromAta(rpcUrls, owner, mint, TOKEN_PROGRAM_ID),
+  ];
+
+  return new Promise<number>((resolve, reject) => {
+    let failures = 0;
+    let lastError: unknown;
+
+    for (const strategy of strategies) {
+      strategy().then(
+        (balance) => resolve(balance),
+        (err) => {
+          lastError = err;
+          failures += 1;
+          if (failures === strategies.length) {
+            reject(lastError instanceof Error ? lastError : new Error('Could not read token balance'));
+          }
+        }
+      );
+    }
+  });
 }
 
 interface DexPair {
@@ -189,20 +257,54 @@ async function fetchTokenQuoteJupiter(mint: string): Promise<{ priceUsd: number;
   };
 }
 
+interface PumpCoin {
+  symbol?: string;
+  usd_market_cap?: number;
+  total_supply?: number;
+  total_supply_str?: string;
+  base_decimals?: number;
+}
+
+async function fetchTokenQuotePump(mint: string): Promise<{ priceUsd: number; symbol: string } | null> {
+  const res = await fetchWithTimeout(`https://frontend-api-v3.pump.fun/coins/${mint}`, {
+    timeoutMs: QUOTE_TIMEOUT_MS,
+  });
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as PumpCoin;
+  const usdMc = data.usd_market_cap;
+  if (usdMc == null || !Number.isFinite(usdMc) || usdMc <= 0) return null;
+
+  const rawSupply = data.total_supply_str ?? String(data.total_supply ?? '');
+  const decimals = data.base_decimals ?? 6;
+  const supply = Number(rawSupply) / 10 ** decimals;
+  if (!Number.isFinite(supply) || supply <= 0) return null;
+
+  const priceUsd = usdMc / supply;
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+
+  return {
+    priceUsd,
+    symbol: data.symbol?.trim() || 'Mailrun',
+  };
+}
+
 async function fetchTokenQuote(mint: string): Promise<{ priceUsd: number; symbol: string } | null> {
   const cached = quoteCache;
   if (cached && cached.mint === mint && Date.now() - cached.at < QUOTE_CACHE_MS) {
     return cached.quote;
   }
 
-  const [dex, jupiter] = await Promise.allSettled([
+  const sources = await Promise.allSettled([
     fetchTokenQuoteDex(mint),
+    fetchTokenQuotePump(mint),
     fetchTokenQuoteJupiter(mint),
   ]);
 
   const quote =
-    (dex.status === 'fulfilled' ? dex.value : null) ??
-    (jupiter.status === 'fulfilled' ? jupiter.value : null);
+    (sources[0].status === 'fulfilled' ? sources[0].value : null) ??
+    (sources[1].status === 'fulfilled' ? sources[1].value : null) ??
+    (sources[2].status === 'fulfilled' ? sources[2].value : null);
 
   if (quote) quoteCache = { mint, quote, at: Date.now() };
   return quote;
@@ -220,7 +322,7 @@ function buildResult(
       granted: false,
       wallet,
       mint,
-      tokenSymbol: 'GAME',
+      tokenSymbol: 'Mailrun',
       tokenBalance: balance,
       tokenPriceUsd: null,
       holdingUsd: null,
